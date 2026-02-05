@@ -1,190 +1,195 @@
 [
-    {
-        "label":  "Details",
-        "fields":  [
-                       {
-                           "templateOptions":  {
-
-                                               },
-                           "type":  "markdown",
-                           "summaryVisibility":  "Show",
-                           "body":  "Retrieving this information from Exchange takes an average of +/- 10 seconds.  \nPlease wait while we load the data.",
-                           "requiresTemplateOptions":  false,
-                           "requiresKey":  false,
-                           "requiresDataSource":  false
-                       },
-                       {
-                           "key":  "searchMailbox",
-                           "templateOptions":  {
-                                                   "label":  "Search",
-                                                   "placeholder":  ""
-                                               },
-                           "type":  "input",
-                           "summaryVisibility":  "Hide element",
-                           "requiresTemplateOptions":  true,
-                           "requiresKey":  true,
-                           "requiresDataSource":  false
-                       },
-                       {
-                           "key":  "gridMailbox",
-                           "templateOptions":  {
-                                                   "label":  "Mailbox",
-                                                   "required":  true,
-                                                   "grid":  {
-                                                                "columns":  [
-                                                                                {
-                                                                                    "headerName":  "Name",
-                                                                                    "field":  "Name"
-                                                                                },
-                                                                                {
-                                                                                    "headerName":  "Display Name",
-                                                                                    "field":  "DisplayName"
-                                                                                },
-                                                                                {
-                                                                                    "headerName":  "User Principal Name",
-                                                                                    "field":  "UserPrincipalName"
-                                                                                },
-                                                                                {
-                                                                                    "headerName":  "Email Addresses",
-                                                                                    "field":  "EmailAddresses"
-                                                                                },
-                                                                                {
-                                                                                    "headerName":  "Alias",
-                                                                                    "field":  "Alias"
-                                                                                }
-                                                                            ],
-                                                                "height":  300,
-                                                                "rowSelection":  "single"
-                                                            },
-                                                   "dataSourceConfig":  {
-                                                                            "dataSourceGuid":  "$dataSourceGuid_0",
-                                                                            "input":  {
-                                                                                          "propertyInputs":  [
-                                                                                                                 {
-                                                                                                                     "propertyName":  "searchValue",
-                                                                                                                     "otherFieldValue":  {
-                                                                                                                                             "otherFieldKey":  "searchMailbox"
-                                                                                                                                         }
-                                                                                                                 }
-                                                                                                             ]
-                                                                                      }
-                                                                        },
-                                                   "useDefault":  false
-                                               },
-                           "type":  "grid",
-                           "summaryVisibility":  "Show",
-                           "requiresTemplateOptions":  true,
-                           "requiresKey":  true,
-                           "requiresDataSource":  true
-                       }
-                   ]
-    },
-    {
-        "label":  "Mailbox Permissions",
-        "fields":  [
-                       {
-                           "templateOptions":  {
-
-                                               },
-                           "type":  "markdown",
-                           "summaryVisibility":  "Show",
-                           "body":  "Retrieving this information from Exchange takes an average of +/- 30 seconds.  \nPlease wait while we load the data.",
-                           "requiresTemplateOptions":  false,
-                           "requiresKey":  false,
-                           "requiresDataSource":  false
-                       },
-                       {
-                           "key":  "permission",
-                           "templateOptions":  {
-                                                   "label":  "Permission",
-                                                   "required":  false,
-                                                   "useObjects":  true,
-                                                   "useDataSource":  false,
-                                                   "useFilter":  false,
-                                                   "options":  [
-                                                                   {
-                                                                       "value":  "fullaccess",
-                                                                       "text":  "Full Access"
-                                                                   },
-                                                                   {
-                                                                       "value":  "sendas",
-                                                                       "text":  "Send As"
-                                                                   },
-                                                                   {
-                                                                       "value":  "sendonbehalf",
-                                                                       "text":  "Send on Behalf"
-                                                                   }
-                                                               ]
-                                               },
-                           "type":  "dropdown",
-                           "summaryVisibility":  "Show",
-                           "textOrLabel":  "text",
-                           "requiresTemplateOptions":  true,
-                           "requiresKey":  true,
-                           "requiresDataSource":  false
-                       },
-                       {
-                           "key":  "permissionList",
-                           "templateOptions":  {
-                                                   "label":  "Full Access permissions",
-                                                   "required":  false,
-                                                   "filterable":  true,
-                                                   "useDataSource":  true,
-                                                   "dualList":  {
-                                                                    "options":  [
-                                                                                    {
-                                                                                        "guid":  "75ea2890-88f8-4851-b202-626123054e14",
-                                                                                        "Name":  "Apple"
-                                                                                    },
-                                                                                    {
-                                                                                        "guid":  "0607270d-83e2-4574-9894-0b70011b663f",
-                                                                                        "Name":  "Pear"
-                                                                                    },
-                                                                                    {
-                                                                                        "guid":  "1ef6fe01-3095-4614-a6db-7c8cd416ae3b",
-                                                                                        "Name":  "Orange"
-                                                                                    }
-                                                                                ],
-                                                                    "optionKeyProperty":  "guid",
-                                                                    "optionDisplayProperty":  "displayValue"
-                                                                },
-                                                   "dataSourceConfig":  {
-                                                                            "dataSourceGuid":  "$dataSourceGuid_1",
-                                                                            "input":  {
-                                                                                          "propertyInputs":  [
-
-                                                                                                             ]
-                                                                                      }
-                                                                        },
-                                                   "destinationDataSourceConfig":  {
-                                                                                       "dataSourceGuid":  "$dataSourceGuid_2",
-                                                                                       "input":  {
-                                                                                                     "propertyInputs":  [
-                                                                                                                            {
-                                                                                                                                "propertyName":  "selectedMailbox",
-                                                                                                                                "otherFieldValue":  {
-                                                                                                                                                        "otherFieldKey":  "gridMailbox"
-                                                                                                                                                    }
-                                                                                                                            },
-                                                                                                                            {
-                                                                                                                                "propertyName":  "Permission",
-                                                                                                                                "otherFieldValue":  {
-                                                                                                                                                        "otherFieldKey":  "permission"
-                                                                                                                                                    }
-                                                                                                                            }
-                                                                                                                        ]
-                                                                                                 }
-                                                                                   }
-                                               },
-                           "hideExpression":  "!model[\"permission\"]",
-                           "type":  "duallist",
-                           "summaryVisibility":  "Show",
-                           "sourceDataSourceIdentifierSuffix":  "source-datasource",
-                           "destinationDataSourceIdentifierSuffix":  "destination-datasource",
-                           "requiresTemplateOptions":  true,
-                           "requiresKey":  true,
-                           "requiresDataSource":  false
-                       }
-                   ]
-    }
+  {
+    "label": "Details",
+    "fields": [
+      {
+        "templateOptions": {
+          "title": "Retrieving this information from Exchange takes an average of +/- 10 seconds. Please wait while the data is loaded.",
+          "titleField": "",
+          "bannerType": "Info",
+          "useBody": false
+        },
+        "type": "textbanner",
+        "summaryVisibility": "Hide element",
+        "body": "Text Banner Content",
+        "requiresTemplateOptions": false,
+        "requiresKey": false,
+        "requiresDataSource": false
+      },
+      {
+        "key": "searchMailbox",
+        "templateOptions": {
+          "label": "Search",
+          "placeholder": ""
+        },
+        "type": "input",
+        "summaryVisibility": "Hide element",
+        "requiresTemplateOptions": true,
+        "requiresKey": true,
+        "requiresDataSource": false
+      },
+      {
+        "key": "gridMailbox",
+        "templateOptions": {
+          "label": "Mailbox",
+          "required": true,
+          "grid": {
+            "columns": [
+              {
+                "headerName": "Name",
+                "field": "Name"
+              },
+              {
+                "headerName": "Display Name",
+                "field": "DisplayName"
+              },
+              {
+                "headerName": "User Principal Name",
+                "field": "UserPrincipalName"
+              },
+              {
+                "headerName": "Email Addresses",
+                "field": "EmailAddresses"
+              },
+              {
+                "headerName": "Alias",
+                "field": "Alias"
+              }
+            ],
+            "height": 300,
+            "rowSelection": "single"
+          },
+          "dataSourceConfig": {
+            "dataSourceGuid": "$dataSourceGuid_0",
+            "input": {
+              "propertyInputs": [
+                {
+                  "propertyName": "searchValue",
+                  "otherFieldValue": {
+                    "otherFieldKey": "searchMailbox"
+                  }
+                }
+              ]
+            }
+          },
+          "useDefault": false,
+          "allowCsvDownload": true
+        },
+        "type": "grid",
+        "summaryVisibility": "Show",
+        "requiresTemplateOptions": true,
+        "requiresKey": true,
+        "requiresDataSource": true
+      }
+    ]
+  },
+  {
+    "label": "Mailbox Permissions",
+    "fields": [
+      {
+        "templateOptions": {
+          "title": "Retrieving this information from Exchange takes an average of +/- 30 seconds. Please wait while the data is loaded.",
+          "titleField": "",
+          "bannerType": "Info",
+          "useBody": false
+        },
+        "type": "textbanner",
+        "summaryVisibility": "Hide element",
+        "body": "Text Banner Content",
+        "requiresTemplateOptions": false,
+        "requiresKey": false,
+        "requiresDataSource": false
+      },
+      {
+        "key": "permission",
+        "templateOptions": {
+          "label": "Permission",
+          "required": false,
+          "useObjects": true,
+          "useDataSource": false,
+          "useFilter": false,
+          "options": [
+            {
+              "value": "fullaccess",
+              "text": "Full Access"
+            },
+            {
+              "value": "sendas",
+              "text": "Send As"
+            },
+            {
+              "value": "sendonbehalf",
+              "text": "Send on Behalf"
+            }
+          ]
+        },
+        "type": "dropdown",
+        "summaryVisibility": "Show",
+        "textOrLabel": "text",
+        "requiresTemplateOptions": true,
+        "requiresKey": true,
+        "requiresDataSource": false
+      },
+      {
+        "key": "permissionList",
+        "templateOptions": {
+          "label": "Mailbox permissions",
+          "required": false,
+          "filterable": true,
+          "useDataSource": true,
+          "dualList": {
+            "options": [
+              {
+                "guid": "75ea2890-88f8-4851-b202-626123054e14",
+                "Name": "Apple"
+              },
+              {
+                "guid": "0607270d-83e2-4574-9894-0b70011b663f",
+                "Name": "Pear"
+              },
+              {
+                "guid": "1ef6fe01-3095-4614-a6db-7c8cd416ae3b",
+                "Name": "Orange"
+              }
+            ],
+            "optionKeyProperty": "guid",
+            "optionDisplayProperty": "displayValue"
+          },
+          "dataSourceConfig": {
+            "dataSourceGuid": "$dataSourceGuid_1",
+            "input": {
+              "propertyInputs": []
+            }
+          },
+          "destinationDataSourceConfig": {
+            "dataSourceGuid": "$dataSourceGuid_2",
+            "input": {
+              "propertyInputs": [
+                {
+                  "propertyName": "selectedMailbox",
+                  "otherFieldValue": {
+                    "otherFieldKey": "gridMailbox"
+                  }
+                },
+                {
+                  "propertyName": "Permission",
+                  "otherFieldValue": {
+                    "otherFieldKey": "permission"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "hideExpression": "!model[\"permission\"]",
+        "type": "duallist",
+        "summaryVisibility": "Show",
+        "sourceDataSourceIdentifierSuffix": "source-datasource",
+        "destinationDataSourceIdentifierSuffix": "destination-datasource",
+        "requiresTemplateOptions": true,
+        "requiresKey": true,
+        "requiresDataSource": false
+      }
+    ]
+  }
 ]
