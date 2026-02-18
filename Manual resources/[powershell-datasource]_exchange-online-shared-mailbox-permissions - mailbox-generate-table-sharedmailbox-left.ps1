@@ -159,6 +159,10 @@ try {
     Write-Information "Querying users that match filter [$($exchangeQuerySplatParams.Filter)]"
     $users = Get-User @exchangeQuerySplatParams | Select-Object $properties
 
+    # Filter out guest users
+    Write-Information "Filtering out guest users"
+    $users = $users | Where-Object { $_.UserPrincipalName -notlike "*#EXT#*" }
+
     $users = $users | Sort-Object -Property Name
     $resultCount = ($users | Measure-Object).Count
     Write-Information "Result count: $resultCount"
