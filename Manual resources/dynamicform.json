@@ -1,6 +1,6 @@
 [
   {
-    "label": "Details",
+    "label": "Select mailbox",
     "fields": [
       {
         "templateOptions": {
@@ -19,8 +19,9 @@
       {
         "key": "searchMailbox",
         "templateOptions": {
-          "label": "Search",
-          "placeholder": ""
+          "label": "Search (wildcard search in Name and Email addresses)",
+          "placeholder": "Name or Email addresses (use * to search all shared mailboxes)",
+          "required": true
         },
         "type": "input",
         "summaryVisibility": "Hide element",
@@ -36,16 +37,12 @@
           "grid": {
             "columns": [
               {
-                "headerName": "Name",
-                "field": "Name"
-              },
-              {
                 "headerName": "Display Name",
                 "field": "DisplayName"
               },
               {
-                "headerName": "User Principal Name",
-                "field": "UserPrincipalName"
+                "headerName": "Primary Smtp Address",
+                "field": "PrimarySmtpAddress"
               },
               {
                 "headerName": "Email Addresses",
@@ -152,7 +149,7 @@
                 "Name": "Orange"
               }
             ],
-            "optionKeyProperty": "guid",
+            "optionKeyProperty": "id",
             "optionDisplayProperty": "displayValue"
           },
           "dataSourceConfig": {

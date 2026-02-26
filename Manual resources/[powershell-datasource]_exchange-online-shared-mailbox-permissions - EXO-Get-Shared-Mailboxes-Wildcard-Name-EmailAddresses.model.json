@@ -1,0 +1,34 @@
+[
+  {
+    "key": "Id",
+    "type": 0
+  },
+  {
+    "key": "Guid",
+    "type": 0
+  },
+  {
+    "key": "ExchangeGuid",
+    "type": 0
+  },
+  {
+    "key": "DisplayName",
+    "type": 0
+  },
+  {
+    "key": "PrimarySmtpAddress",
+    "type": 0
+  },
+  {
+    "key": "EmailAddresses",
+    "type": 0
+  },
+  {
+    "key": "Alias",
+    "type": 0
+  },
+  {
+    "key": "RecipientTypeDetails",
+    "type": 0
+  }
+]

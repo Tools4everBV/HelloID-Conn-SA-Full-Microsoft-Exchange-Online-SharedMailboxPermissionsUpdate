@@ -12,15 +12,11 @@
     "type": 0
   },
   {
-    "key": "Name",
-    "type": 0
-  },
-  {
     "key": "DisplayName",
     "type": 0
   },
   {
-    "key": "UserPrincipalName",
+    "key": "PrimarySmtpAddress",
     "type": 0
   },
   {
@@ -28,11 +24,11 @@
     "type": 0
   },
   {
-    "key": "RecipientTypeDetails",
+    "key": "Alias",
     "type": 0
   },
   {
-    "key": "Alias",
+    "key": "RecipientTypeDetails",
     "type": 0
   }
 ]
