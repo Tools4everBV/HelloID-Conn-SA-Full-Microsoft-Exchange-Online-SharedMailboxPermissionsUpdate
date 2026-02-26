@@ -13,11 +13,11 @@ By using this delegated form, you can manage shared mailbox permissions in Excha
 1. Search and select a shared mailbox (wildcard search by name and email addresses)
 2. Select the permission type to manage (Full Access, Send As, or Send on Behalf)
 3. Add or remove users from the selected permission via a dual list
-   > The left part of the dual list shows all available users
-   > The right part of the dual list shows the users who currently have the selected permission
+   > The left part of the dual list shows all available users  
+   > The right part of the dual list shows the users who currently have the selected permission  
 4. grant or revoke the selected permission for multiple users to or from the selected mailbox
-   > Users moved to the left part of the dual list will have their permission revoked
-   > Users moved to the right part of the dual list will have their permission granted
+   > Users moved to the left part of the dual list will have their permission revoked  
+   > Users moved to the right part of the dual list will have their permission granted  
 
 ## Getting started
 ### Requirements
