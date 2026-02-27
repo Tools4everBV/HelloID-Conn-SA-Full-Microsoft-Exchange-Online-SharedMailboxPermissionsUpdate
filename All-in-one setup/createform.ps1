@@ -1,12 +1,13 @@
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
 #HelloID variables
 #Note: when running this script inside HelloID; portalUrl and API credentials are provided automatically (generate and save API credentials first in your admin panel!)
 $portalUrl = "https://CUSTOMER.helloid.com"
 $apiKey = "API_KEY"
 $apiSecret = "API_SECRET"
 $delegatedFormAccessGroupNames = @("") #Only unique names are supported. Groups must exist!
-$delegatedFormCategories = @("User Management","Exchange Online","mailbox Management") #Only unique names are supported. Categories will be created if not exists
+$delegatedFormCategories = @("mailbox Management","Exchange Online") #Only unique names are supported. Categories will be created if not exists
 $script:debugLogging = $false #Default value: $false. If $true, the HelloID resource GUIDs will be shown in the logging
 $script:duplicateForm = $false #Default value: $false. If $true, the HelloID resource names will be changed to import a duplicate Form
 $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID resource names to generate a duplicate form with different resource names
@@ -15,26 +16,48 @@ $script:duplicateFormSuffix = "_tmp" #the suffix will be added to all HelloID re
 #NOTE: You can also update the HelloID Global variable values afterwards in the HelloID Admin Portal: https://<CUSTOMER>.helloid.com/admin/variablelibrary
 $globalHelloIDVariables = [System.Collections.Generic.List[object]]@();
 
-#Global variable #1 >> ExchangeOnlineAdminPassword
+#Global variable #1 >> EntraIdCertificateBase64String
 $tmpName = @'
-ExchangeOnlineAdminPassword
+EntraIdCertificateBase64String
+'@ 
+$tmpValue = "" 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "True"});
+
+#Global variable #2 >> EntraIDAppId
+$tmpName = @'
+EntraIDAppId
 '@ 
 $tmpValue = @'
 '@ 
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
 
-#Global variable #2 >> ExchangeOnlineAdminUsername
+#Global variable #3 >> EntraIdCertificatePassword
 $tmpName = @'
-ExchangeOnlineAdminUsername
+EntraIdCertificatePassword
+'@ 
+$tmpValue = "" 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "True"});
+
+#Global variable #4 >> EntraIdOrganization
+$tmpName = @'
+EntraIdOrganization
 '@ 
 $tmpValue = @'
-exchangeadmin@enyoi.onmicrosoft.com
+'@ 
+$globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
+
+#Global variable #5 >> EntraIDtenantID
+$tmpName = @'
+EntraIDtenantID
+'@ 
+$tmpValue = @'
 '@ 
 $globalHelloIDVariables.Add([PSCustomObject]@{name = $tmpName; value = $tmpValue; secret = "False"});
 
 
 #make sure write-information logging is visual
 $InformationPreference = "continue"
+
 # Check for prefilled API Authorization header
 if (-not [string]::IsNullOrEmpty($portalApiBasic)) {
     $script:headers = @{"authorization" = $portalApiBasic}
@@ -48,6 +71,7 @@ if (-not [string]::IsNullOrEmpty($portalApiBasic)) {
     $script:headers = @{"authorization" = $Key}
     Write-Information "Using manual API credentials"
 }
+
 # Check for prefilled PortalBaseURL
 if (-not [string]::IsNullOrEmpty($portalBaseUrl)) {
     $script:PortalBaseUrl = $portalBaseUrl
@@ -56,8 +80,10 @@ if (-not [string]::IsNullOrEmpty($portalBaseUrl)) {
     $script:PortalBaseUrl = $portalUrl
     Write-Information "Using manual PortalURL: $script:PortalBaseUrl"
 }
+
 # Define specific endpoint URI
 $script:PortalBaseUrl = $script:PortalBaseUrl.trim("/") + "/"  
+
 # Make sure to reveive an empty array using PowerShell Core
 function ConvertFrom-Json-WithEmptyArray([string]$jsonString) {
     # Running in PowerShell Core?
@@ -69,17 +95,20 @@ function ConvertFrom-Json-WithEmptyArray([string]$jsonString) {
         return ,$r  # Force return value to be an array using a comma
     }
 }
+
 function Invoke-HelloIDGlobalVariable {
     param(
         [parameter(Mandatory)][String]$Name,
         [parameter(Mandatory)][String][AllowEmptyString()]$Value,
         [parameter(Mandatory)][String]$Secret
     )
+
     $Name = $Name + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
+
     try {
         $uri = ($script:PortalBaseUrl + "api/v1/automation/variables/named/$Name")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
-    
+
         if ([string]::IsNullOrEmpty($response.automationVariableGuid)) {
             #Create Variable
             $body = @{
@@ -89,10 +118,11 @@ function Invoke-HelloIDGlobalVariable {
                 ItemType = 0;
             }    
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl + "api/v1/automation/variable")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $variableGuid = $response.automationVariableGuid
+
             Write-Information "Variable '$Name' created$(if ($script:debugLogging -eq $true) { ": " + $variableGuid })"
         } else {
             $variableGuid = $response.automationVariableGuid
@@ -102,6 +132,7 @@ function Invoke-HelloIDGlobalVariable {
         Write-Error "Variable '$Name', message: $_"
     }
 }
+
 function Invoke-HelloIDAutomationTask {
     param(
         [parameter(Mandatory)][String]$TaskName,
@@ -113,15 +144,17 @@ function Invoke-HelloIDAutomationTask {
         [parameter()][String][AllowEmptyString()]$ForceCreateTask,
         [parameter(Mandatory)][Ref]$returnObject
     )
-    
+
     $TaskName = $TaskName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
+
     try {
         $uri = ($script:PortalBaseUrl +"api/v1/automationtasks?search=$TaskName&container=$AutomationContainer")
         $responseRaw = (Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false) 
         $response = $responseRaw | Where-Object -filter {$_.name -eq $TaskName}
-    
+
         if([string]::IsNullOrEmpty($response.automationTaskGuid) -or $ForceCreateTask -eq $true) {
             #Create Task
+
             $body = @{
                 name                = $TaskName;
                 useTemplate         = $UseTemplate;
@@ -131,10 +164,11 @@ function Invoke-HelloIDAutomationTask {
                 variables           = (ConvertFrom-Json-WithEmptyArray($Variables));
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl +"api/v1/automationtasks/powershell")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
             $taskGuid = $response.automationTaskGuid
+
             Write-Information "Powershell task '$TaskName' created$(if ($script:debugLogging -eq $true) { ": " + $taskGuid })"
         } else {
             #Get TaskGUID
@@ -144,8 +178,10 @@ function Invoke-HelloIDAutomationTask {
     } catch {
         Write-Error "Powershell task '$TaskName', message: $_"
     }
+
     $returnObject.Value = $taskGuid
 }
+
 function Invoke-HelloIDDatasource {
     param(
         [parameter(Mandatory)][String]$DatasourceName,
@@ -155,20 +191,23 @@ function Invoke-HelloIDDatasource {
         [parameter()][String][AllowEmptyString()]$DatasourcePsScript,        
         [parameter()][String][AllowEmptyString()]$DatasourceInput,
         [parameter()][String][AllowEmptyString()]$AutomationTaskGuid,
+        [parameter()][String][AllowEmptyString()]$DatasourceRunInCloud,
         [parameter(Mandatory)][Ref]$returnObject
     )
+
     $DatasourceName = $DatasourceName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
+
     $datasourceTypeName = switch($DatasourceType) { 
         "1" { "Native data source"; break} 
         "2" { "Static data source"; break} 
         "3" { "Task data source"; break} 
         "4" { "Powershell data source"; break}
     }
-    
+
     try {
         $uri = ($script:PortalBaseUrl +"api/v1/datasource/named/$DatasourceName")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
-      
+    
         if([string]::IsNullOrEmpty($response.dataSourceGUID)) {
             #Create DataSource
             $body = @{
@@ -179,12 +218,13 @@ function Invoke-HelloIDDatasource {
                 value              = (ConvertFrom-Json-WithEmptyArray($DatasourceStaticValue));
                 script             = $DatasourcePsScript;
                 input              = (ConvertFrom-Json-WithEmptyArray($DatasourceInput));
+                runInCloud         = $DatasourceRunInCloud;
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-      
+    
             $uri = ($script:PortalBaseUrl +"api/v1/datasource")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-              
+            
             $datasourceGuid = $response.dataSourceGUID
             Write-Information "$datasourceTypeName '$DatasourceName' created$(if ($script:debugLogging -eq $true) { ": " + $datasourceGuid })"
         } else {
@@ -193,18 +233,21 @@ function Invoke-HelloIDDatasource {
             Write-Warning "$datasourceTypeName '$DatasourceName' already exists$(if ($script:debugLogging -eq $true) { ": " + $datasourceGuid })"
         }
     } catch {
-      Write-Error "$datasourceTypeName '$DatasourceName', message: $_"
+        Write-Error "$datasourceTypeName '$DatasourceName', message: $_"
     }
+
     $returnObject.Value = $datasourceGuid
 }
+
 function Invoke-HelloIDDynamicForm {
     param(
         [parameter(Mandatory)][String]$FormName,
         [parameter(Mandatory)][String]$FormSchema,
         [parameter(Mandatory)][Ref]$returnObject
     )
-    
+
     $FormName = $FormName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
+
     try {
         try {
             $uri = ($script:PortalBaseUrl +"api/v1/forms/$FormName")
@@ -212,7 +255,7 @@ function Invoke-HelloIDDynamicForm {
         } catch {
             $response = $null
         }
-    
+
         if(([string]::IsNullOrEmpty($response.dynamicFormGUID)) -or ($response.isUpdated -eq $true)) {
             #Create Dynamic form
             $body = @{
@@ -220,10 +263,10 @@ function Invoke-HelloIDDynamicForm {
                 FormSchema = (ConvertFrom-Json-WithEmptyArray($FormSchema));
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl +"api/v1/forms")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-    
+
             $formGuid = $response.dynamicFormGUID
             Write-Information "Dynamic form '$formName' created$(if ($script:debugLogging -eq $true) { ": " + $formGuid })"
         } else {
@@ -233,8 +276,11 @@ function Invoke-HelloIDDynamicForm {
     } catch {
         Write-Error "Dynamic form '$FormName', message: $_"
     }
+
     $returnObject.Value = $formGuid
 }
+
+
 function Invoke-HelloIDDelegatedForm {
     param(
         [parameter(Mandatory)][String]$DelegatedFormName,
@@ -248,6 +294,7 @@ function Invoke-HelloIDDelegatedForm {
     )
     $delegatedFormCreated = $false
     $DelegatedFormName = $DelegatedFormName + $(if ($script:duplicateForm -eq $true) { $script:duplicateFormSuffix })
+
     try {
         try {
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms/$DelegatedFormName")
@@ -255,7 +302,7 @@ function Invoke-HelloIDDelegatedForm {
         } catch {
             $response = $null
         }
-    
+
         if([string]::IsNullOrEmpty($response.delegatedFormGUID)) {
             #Create DelegatedForm
             $body = @{
@@ -272,13 +319,14 @@ function Invoke-HelloIDDelegatedForm {
                 }
             }
             $body = ConvertTo-Json -InputObject $body -Depth 100
-    
+
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
-    
+
             $delegatedFormGuid = $response.delegatedFormGUID
             Write-Information "Delegated form '$DelegatedFormName' created$(if ($script:debugLogging -eq $true) { ": " + $delegatedFormGuid })"
             $delegatedFormCreated = $true
+
             $bodyCategories = $Categories
             $uri = ($script:PortalBaseUrl +"api/v1/delegatedforms/$delegatedFormGuid/categories")
             $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $bodyCategories
@@ -291,6 +339,7 @@ function Invoke-HelloIDDelegatedForm {
     } catch {
         Write-Error "Delegated form '$DelegatedFormName', message: $_"
     }
+
     $returnObject.value.guid = $delegatedFormGuid
     $returnObject.value.created = $delegatedFormCreated
 }
@@ -303,222 +352,28 @@ foreach ($item in $globalHelloIDVariables) {
 
 
 <# Begin: HelloID Data sources #>
-<# Begin: DataSource "Exchange-user-generate-table-sharedmailbox-manage-generate-table-users" #>
+<# Begin: DataSource "exchange-online-shared-mailbox-manage-permissions | EXO-Get-Mailbox-Permissions-EntraID-Get-Users" #>
 $tmpPsScript = @'
-# PowerShell commands to import
-$commands = @(
-    "Get-user"
+# Variables configured in form
+$identity = $datasource.selectedmailbox.guid
+$permission = $datasource.Permission
+
+# Global variables
+# Outcommented as these are set from Global Variables
+# $EntraIdOrganization = ""
+# $EntraIdTenantId = ""
+# $EntraIdAppId = ""
+# $EntraIdCertificateBase64String = ""
+# $EntraIdCertificatePassword = ""
+
+# Fixed values
+# Properties to select - Select only needed properties to limit memory usage and speed up processing
+$propertiesToSelect = @(
+    "id",
+    "userPrincipalName",
+    "displayName",
+    "mail"
 )
-
-# Set TLS to accept TLS, TLS 1.1 and TLS 1.2
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
-
-$VerbosePreference = "SilentlyContinue"
-$InformationPreference = "Continue"
-$WarningPreference = "Continue"
-
-#region functions
-function Resolve-HTTPError {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        $httpErrorObj = [PSCustomObject]@{
-            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId
-            MyCommand             = $ErrorObject.InvocationInfo.MyCommand
-            RequestUri            = $ErrorObject.TargetObject.RequestUri
-            ScriptStackTrace      = $ErrorObject.ScriptStackTrace
-            ErrorMessage          = ''
-        }
-
-        if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
-            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls
-            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
-
-        }
-        elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
-            $httpErrorObj.ErrorMessage = [HelloID.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
-        }
-
-        Write-Output $httpErrorObj
-    }
-}
-
-function Get-ErrorMessage {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        $errorMessage = [PSCustomObject]@{
-            VerboseErrorMessage = $null
-            AuditErrorMessage   = $null
-        }
-
-        if ( $($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or $($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException')) {
-            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject
-
-            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage
-
-            $errorMessage.AuditErrorMessage = $httpErrorObject.ErrorMessage
-        }
-
-        # If error message empty, fall back on $ex.Exception.Message
-        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {
-            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message
-        }
-        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {
-            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message
-        }
-
-        Write-Output $errorMessage
-    }
-}
-#endregion functions
-
-#region Import module
-try {           
-    $moduleName = "ExchangeOnlineManagement"
-
-    # If module is imported say that and do nothing
-    if (Get-Module -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-        Write-Verbose "Module [$ModuleName] is already imported."
-    }
-    else {
-        # If module is not imported, but available on disk then import
-        if (Get-Module -ListAvailable -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-            $module = Import-Module $ModuleName -Cmdlet $commands -Verbose:$false
-            Write-Verbose "Imported module [$ModuleName]"
-        }
-        else {
-            # If the module is not imported, not available and not in the online gallery then abort
-            throw "Module [$ModuleName] is not available. Please install the module using: Install-Module -Name [$ModuleName] -Force"
-        }
-    }
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
-
-    # Skip further actions, as this is a critical error
-    throw "Error importing module [$ModuleName]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Import module
-
-#region Connect to Exchange
-try {
-    # Create credentials object
-    Write-Verbose "Creating Credentials object"
-    $securePassword = ConvertTo-SecureString $ExchangeOnlineAdminPassword -AsPlainText -Force
-    $credential = [System.Management.Automation.PSCredential]::new($ExchangeOnlineAdminUsername, $securePassword)
-
-    # Connect to Exchange Online in an unattended scripting scenario using an access token.
-    Write-Verbose "Connecting to Exchange Online"
-
-    $exchangeSessionParams = @{
-        Credential       = $credential
-        CommandName      = $commands
-        ShowBanner       = $false
-        ShowProgress     = $false
-        TrackPerformance = $false
-        ErrorAction      = "Stop"
-    }
-    $exchangeSession = Connect-ExchangeOnline @exchangeSessionParams
-    
-    Write-Information "Successfully connected to Exchange Online"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
-
-    # Skip further actions, as this is a critical error
-    throw "Error connecting to Exchange Online. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Connect to Exchange
-
-#region Get Users
-try {
-    $properties = @(
-        "Id"
-        , "Guid"
-        , "Name"
-        , "DisplayName"
-        , "UserPrincipalName"
-    )
-
-    $exchangeQuerySplatParams = @{
-        Filter     = "*"
-        ResultSize = "Unlimited"
-    }
-    if (-not[String]::IsNullOrEmpty($filter)) {
-        $exchangeQuerySplatParams.Add("Filter", $filter)
-    }
-
-    Write-Information "Querying users that match filter [$($exchangeQuerySplatParams.Filter)]"
-    $users = Get-User @exchangeQuerySplatParams | Select-Object $properties
-
-    $users = $users | Sort-Object -Property Name
-    $resultCount = ($users | Measure-Object).Count
-    Write-Information "Result count: $resultCount"
-
-    # # Filter out users without name
-    # Write-Information "Filtering out users without [name]"
-    # $users = $users | Where-Object { -NOT[String]::IsNullOrEmpty($_.name) }
-    # $resultCount = ($users | Measure-Object).Count
-    # Write-Information "Result count: $resultCount"
-    
-    if ($resultCount -gt 0) {
-        foreach ($user in $users) {
-            $displayValue = $user.displayName + " [" + $user.userPrincipalName + "]"
-            $returnObject = @{
-                displayValue      = $displayValue;
-                userPrincipalName = "$($user.userPrincipalName)";
-                id                = "$($user.id)";
-                guid              = "$($user.guid)";
-            }
-     
-            Write-Output $returnObject
-        }
-    }
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line '$($ex.InvocationInfo.ScriptLineNumber)': $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error querying users that match filter [$($exchangeQuerySplatParams.Filter)]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Get Users
-'@ 
-$tmpModel = @'
-[{"key":"id","type":0},{"key":"userPrincipalName","type":0},{"key":"displayValue","type":0},{"key":"guid","type":0}]
-'@ 
-$tmpInput = @'
-[]
-'@ 
-$dataSourceGuid_1 = [PSCustomObject]@{} 
-$dataSourceGuid_1_Name = @'
-Exchange-user-generate-table-sharedmailbox-manage-generate-table-users
-'@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_1) 
-<# End: DataSource "Exchange-user-generate-table-sharedmailbox-manage-generate-table-users" #>
-
-<# Begin: DataSource "Exchange-user-generate-table-sharedmailbox-manage-generate-table-users-permission" #>
-$tmpPsScript = @'
-$identity = $datasource.selectedmailbox.id
-$Permission = $datasource.Permission
 
 # PowerShell commands to import
 $commands = @(
@@ -526,6 +381,7 @@ $commands = @(
     , "Get-EXOMailbox"
     , "Get-RecipientPermission"
     , "Get-MailboxPermission"
+    , "Get-User"
 )
 
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
@@ -536,419 +392,808 @@ $InformationPreference = "Continue"
 $WarningPreference = "Continue"
 
 #region functions
-function Resolve-HTTPError {
+function Resolve-MicrosoftGraphAPIError {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
+        [Parameter(Mandatory)]
+        [object]
+        $ErrorObject
     )
     process {
         $httpErrorObj = [PSCustomObject]@{
-            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId
-            MyCommand             = $ErrorObject.InvocationInfo.MyCommand
-            RequestUri            = $ErrorObject.TargetObject.RequestUri
-            ScriptStackTrace      = $ErrorObject.ScriptStackTrace
-            ErrorMessage          = ''
+            ScriptLineNumber = $ErrorObject.InvocationInfo.ScriptLineNumber
+            Line             = $ErrorObject.InvocationInfo.Line
+            ErrorDetails     = $ErrorObject.Exception.Message
+            FriendlyMessage  = $ErrorObject.Exception.Message
         }
-
-        if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
-            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls
-            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
-
+        if (-not [string]::IsNullOrEmpty($ErrorObject.ErrorDetails.Message)) {
+            $httpErrorObj.ErrorDetails = $ErrorObject.ErrorDetails.Message
         }
         elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
-            $httpErrorObj.ErrorMessage = [HelloID.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
+            if ($null -ne $ErrorObject.Exception.Response) {
+                $streamReaderResponse = [System.IO.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
+                if (-not [string]::IsNullOrEmpty($streamReaderResponse)) {
+                    $httpErrorObj.ErrorDetails = $streamReaderResponse
+                }
+            }
         }
-
+        try {
+            $errorDetailsObject = ($httpErrorObj.ErrorDetails | ConvertFrom-Json -ErrorAction Stop)
+            if ($errorDetailsObject.error_description) {
+                $httpErrorObj.FriendlyMessage = $errorDetailsObject.error_description
+            }
+            elseif ($errorDetailsObject.error.message) {
+                $httpErrorObj.FriendlyMessage = "$($errorDetailsObject.error.code): $($errorDetailsObject.error.message)"
+            }
+            elseif ($errorDetailsObject.error.details.message) {
+                $httpErrorObj.FriendlyMessage = "$($errorDetailsObject.error.details.code): $($errorDetailsObject.error.details.message)"
+            }
+            else {
+                $httpErrorObj.FriendlyMessage = $httpErrorObj.ErrorDetails
+            }
+        }
+        catch {
+            $httpErrorObj.FriendlyMessage = $httpErrorObj.ErrorDetails
+        }
         Write-Output $httpErrorObj
     }
 }
 
-function Get-ErrorMessage {
+function Get-MSEntraAccessToken {
     [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        $Certificate,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $AppId,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $TenantId
     )
-    process {
-        $errorMessage = [PSCustomObject]@{
-            VerboseErrorMessage = $null
-            AuditErrorMessage   = $null
+    try {
+        # Get the DER encoded bytes of the certificate
+        $derBytes = $Certificate.RawData
+
+        # Compute the SHA-256 hash of the DER encoded bytes
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha256.ComputeHash($derBytes)
+        $base64Thumbprint = [System.Convert]::ToBase64String($hashBytes).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Create a JWT (JSON Web Token) header
+        $header = @{
+            'alg'      = 'RS256'
+            'typ'      = 'JWT'
+            'x5t#S256' = $base64Thumbprint
+        } | ConvertTo-Json
+        $base64Header = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($header))
+
+        # Calculate the Unix timestamp (seconds since 1970-01-01T00:00:00Z) for 'exp', 'nbf' and 'iat'
+        $currentUnixTimestamp = [math]::Round(((Get-Date).ToUniversalTime() - ([datetime]'1970-01-01T00:00:00Z').ToUniversalTime()).TotalSeconds)
+
+        # Create a JWT payload
+        $payload = [Ordered]@{
+            'iss' = "$($AppId)"
+            'sub' = "$($AppId)"
+            'aud' = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
+            'exp' = ($currentUnixTimestamp + 3600) # Expires in 1 hour
+            'nbf' = ($currentUnixTimestamp - 300) # Not before 5 minutes ago
+            'iat' = $currentUnixTimestamp
+            'jti' = [Guid]::NewGuid().ToString()
+        } | ConvertTo-Json
+        $base64Payload = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payload)).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Extract the private key from the certificate
+        $rsaPrivate = $Certificate.PrivateKey
+        $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
+        $rsa.ImportParameters($rsaPrivate.ExportParameters($true))
+
+        # Sign the JWT
+        $signatureInput = "$base64Header.$base64Payload"
+        $signature = $rsa.SignData([Text.Encoding]::UTF8.GetBytes($signatureInput), 'SHA256')
+        $base64Signature = [System.Convert]::ToBase64String($signature).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Ensure the certificate has a private key
+        if (-not $Certificate.HasPrivateKey -or -not $Certificate.PrivateKey) {
+            throw "The certificate does not have a private key."
         }
 
-        if ( $($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or $($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException')) {
-            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject
+        # Create the JWT token
+        $jwtToken = "$($base64Header).$($base64Payload).$($base64Signature)"
 
-            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage
-
-            $errorMessage.AuditErrorMessage = $httpErrorObject.ErrorMessage
+        $createEntraAccessTokenBody = @{
+            grant_type            = 'client_credentials'
+            client_id             = $AppId
+            client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+            client_assertion      = $jwtToken
+            resource              = 'https://graph.microsoft.com'
         }
 
-        # If error message empty, fall back on $ex.Exception.Message
-        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {
-            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message
-        }
-        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {
-            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message
+        $createEntraAccessTokenSplatParams = @{
+            Uri         = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
+            Body        = $createEntraAccessTokenBody
+            Method      = 'POST'
+            ContentType = 'application/x-www-form-urlencoded'
+            Verbose     = $false
+            ErrorAction = 'Stop'
         }
 
-        Write-Output $errorMessage
+        $createEntraAccessTokenResponse = Invoke-RestMethod @createEntraAccessTokenSplatParams
+        Write-Output $createEntraAccessTokenResponse.access_token
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError($_)
+    }
+}
+
+function Get-MSEntraCertificate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificateBase64String,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificatePassword
+    )
+    try {
+        $rawCertificate = [system.convert]::FromBase64String($CertificateBase64String)
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rawCertificate, $CertificatePassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+        Write-Output $certificate
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError($_)
     }
 }
 #endregion functions
 
-#region Import module
-try {           
-    $moduleName = "ExchangeOnlineManagement"
-
-    # If module is imported say that and do nothing
-    if (Get-Module -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-        Write-Verbose "Module [$ModuleName] is already imported."
+# Exchange Online Management module actions
+try {    
+    # Import module
+    $actionMessage = "importing module [ExchangeOnlineManagement]"
+        
+    $importModuleSplatParams = @{
+        Name        = "ExchangeOnlineManagement"
+        Cmdlet      = $commands
+        Verbose     = $false
+        ErrorAction = "Stop"
     }
-    else {
-        # If module is not imported, but available on disk then import
-        if (Get-Module -ListAvailable -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-            $module = Import-Module $ModuleName -Cmdlet $commands -Verbose:$false
-            Write-Verbose "Imported module [$ModuleName]"
-        }
-        else {
-            # If the module is not imported, not available and not in the online gallery then abort
-            throw "Module [$ModuleName] is not available. Please install the module using: Install-Module -Name [$ModuleName] -Force"
-        }
+
+    $null = Import-Module @importModuleSplatParams
+
+    Write-Verbose "Imported module [ExchangeOnlineManagement]"
+
+    # Convert base64 certificate string to certificate object
+    $actionMessage = "converting base64 certificate string to certificate object"
+
+    $certificate = Get-MSEntraCertificate -CertificateBase64String $EntraIdCertificateBase64String -CertificatePassword $EntraIdCertificatePassword
+
+    Write-Verbose "Converted base64 certificate string to certificate object"
+
+    # Connect to Microsoft Exchange Online
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/connect-exchangeonline?view=exchange-ps
+    $actionMessage = "connecting to Microsoft Exchange Online"
+
+    $createExchangeSessionSplatParams = @{
+        Organization          = $EntraIdOrganization
+        AppID                 = $EntraIdAppId
+        Certificate           = $certificate
+        CommandName           = $commands
+        ShowBanner            = $false
+        ShowProgress          = $false
+        TrackPerformance      = $false
+        SkipLoadingCmdletHelp = $true
+        SkipLoadingFormatData = $true
+        ErrorAction           = "Stop"
     }
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
 
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
+    $null = Connect-ExchangeOnline @createExchangeSessionSplatParams
 
-    # Skip further actions, as this is a critical error
-    throw "Error importing module [$ModuleName]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Import module
-
-#region Connect to Exchange
-try {
-    # Create credentials object
-    Write-Verbose "Creating Credentials object"
-    $securePassword = ConvertTo-SecureString $ExchangeOnlineAdminPassword -AsPlainText -Force
-    $credential = [System.Management.Automation.PSCredential]::new($ExchangeOnlineAdminUsername, $securePassword)
-
-    # Connect to Exchange Online in an unattended scripting scenario using an access token.
-    Write-Verbose "Connecting to Exchange Online"
-
-    $exchangeSessionParams = @{
-        Credential       = $credential
-        CommandName      = $commands
-        ShowBanner       = $false
-        ShowProgress     = $false
-        TrackPerformance = $false
-        ErrorAction      = "Stop"
-    }
-    $exchangeSession = Connect-ExchangeOnline @exchangeSessionParams
-    
-    Write-Information "Successfully connected to Exchange Online"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
-
-    # Skip further actions, as this is a critical error
-    throw "Error connecting to Exchange Online. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Connect to Exchange
-
-# Get current mailbox permissions
-try {
-    if ($Permission.ToLower() -eq "fullaccess") {
+    if ($permission.ToLower() -eq "fullaccess") {
+        $actionMessage = "querying FullAccess permissions for mailbox [$($identity)]"
+        # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-mailboxpermission?view=exchange-ps
         $currentPermissions = Get-MailboxPermission -Identity $identity # Returns UPN
 
         $currentPermissions = $currentPermissions | Where-Object { ($_.accessRights -like "*fullaccess*") -and -not($_.Deny -eq $true) -and -not($_.User -match "NT AUTHORITY") -and -not($_.User -like "*\Domain Admins") }
         $currentPermissionsUsers = $currentPermissions.User    
+
+        $currentPermissionsUsers = $currentPermissions | ForEach-Object { $_.User.ToString() }
+
     }
-    elseif ($Permission.ToLower() -eq "sendas") {
+    elseif ($permission.ToLower() -eq "sendas") {
+        $actionMessage = "querying SendAs permissions for mailbox [$($identity)]"
+        # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-recipientpermission?view=exchange-ps
         $currentPermissions = Get-RecipientPermission -Identity $identity -AccessRights 'SendAs' # Returns UPN
 
         $currentPermissions = $currentPermissions | Where-Object { -not($_.Deny -eq $true) -and -not($_.Trustee -match "NT AUTHORITY") -and -not($_.Trustee -like "*\Domain Admins") }
         $currentPermissionsUsers = $currentPermissions.Trustee
     }
-    elseif ($Permission.ToLower() -eq "sendonbehalf") {
-        $exchangeMailbox = Get-EXOMailbox -Identity $identity -resultSize unlimited
+    elseif ($permission.ToLower() -eq "sendonbehalf") {
+        $actionMessage = "querying SendOnBehalf permissions for mailbox [$($identity)]"
+        # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/get-exomailbox?view=exchange-ps
+        $exchangeMailbox = Get-EXOMailbox -Identity $identity -Properties GrantSendOnBehalfTo
 
-        $currentPermissions = $exchangeMailbox | ForEach-Object { $_.GrantSendOnBehalfTo } # Returns name only
+        $currentPermissions = $exchangeMailbox.GrantSendOnBehalfTo # Returns id only
         $currentPermissionsUsers = $currentPermissions
     }
     else {
-        throw "Could not match right '$($Permission)' to FullAccess, SendAs or SendOnBehalf"
+        throw "Could not match right '$($permission)' to FullAccess, SendAs or SendOnBehalf"
     }
-
-    $users = foreach ($currentPermissionsUser in $currentPermissionsUsers) {
-        Get-User -Identity $currentPermissionsUser -ErrorAction SilentlyContinue
-    }
-    
-    $users = $users | Sort-Object -Property Displayname
-    Write-Information -Message "Found $Permission permissions to mailbox $($identity): $(@($users).Count)"
-
-    foreach ($user in $users) {
-        $displayValue = $user.displayName + " [" + $user.userPrincipalName + "]"
-        $returnObject = @{
-            displayValue      = $displayValue;
-            userPrincipalName = "$($user.userPrincipalName)";
-            id                = "$($user.id)";
-            guid              = "$($user.guid)";
-        }
-
-        Write-Output $returnObject
-    }
-
+    Write-Information "Queried [$permission] permissions for mailbox [$($identity)]. Result count: $(@($currentPermissionsUsers).Count)"
 }
 catch {
-    Write-Error "Error searching $Permissions permissions to mailbox $($identity). Error: $_"
+    $ex = $PSItem
+    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)"        
+    }
+    else {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+    # exit # use when using multiple try/catch and the script must stop
+}
+finally {
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/disconnect-exchangeonline?view=exchange-ps
+    $deleteExchangeSessionSplatParams = @{
+        Confirm     = $false
+        ErrorAction = "Stop"
+        Verbose     = $false
+    }
+    $null = Disconnect-ExchangeOnline @deleteExchangeSessionSplatParams
+}
+
+# Graph API actions
+try {
+    # Create access token
+    $actionMessage = "creating access token"
+    $entraToken = Get-MSEntraAccessToken -Certificate $certificate -AppId $EntraIdAppId -TenantId $EntraIdTenantId
+
+    # Create headers
+    $actionMessage = "creating headers"
+    $headers = @{
+        "Authorization"    = "Bearer $($entraToken)"
+        "Accept"           = "application/json"
+        "Content-Type"     = "application/json"
+        "ConsistencyLevel" = "eventual" # Needed to filter on specific attributes (https://docs.microsoft.com/en-us/graph/aad-advanced-queries)
+    }
+
+    # Get Microsoft Entra ID Users
+    # Docs: https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0&tabs=http
+    $actionMessage = "querying user information from Microsoft Entra ID for users"
+    $microsoftEntraIDUsers = [System.Collections.ArrayList]@()
+    foreach ($currentPermissionsUser in $currentPermissionsUsers) {
+        if ($permission.ToLower() -eq "fullaccess" -or $permission.ToLower() -eq "sendas") {
+            # For FullAccess and SendAs permissions, the user is returned as UPN. We can filter on userPrincipalName.
+            $filter = "`$filter=userPrincipalName eq '$($currentPermissionsUser)'"
+        }
+        elseif ($permission.ToLower() -eq "sendonbehalf") {
+            # For SendOnBehalf permissions, the user is returned as id only. We can filter on id.
+            $filter = "`$filter=id eq '$($currentPermissionsUser)'"
+        }
+
+        $getMicrosoftEntraIDUserSplatParams = @{
+            Uri         = "https://graph.microsoft.com/v1.0/users?$filter&`$select=$($propertiesToSelect -join ',')&`$top=999&`$count=true"
+            Headers     = $headers
+            Method      = "GET"
+            Verbose     = $false
+            ErrorAction = "Stop"
+        }
+        
+        $getMicrosoftEntraIDUserResponse = $null
+        $getMicrosoftEntraIDUserResponse = Invoke-RestMethod @getMicrosoftEntraIDUserSplatParams
+
+        if ($getMicrosoftEntraIDUserResponse.Value) {
+            # Select only specified properties to limit memory usage
+            $microsoftEntraIDUser = $null
+            $microsoftEntraIDUser = $getMicrosoftEntraIDUserResponse.Value | Select-Object $propertiesToSelect
+            [void]$microsoftEntraIDUsers.Add($microsoftEntraIDUser)
+        }
+        else {
+            # Write-Warning "No user found in Microsoft Entra ID matching filter: $filter"
+        }
+    }
+    Write-Information "Queried user information from Microsoft Entra ID for users. Result count: $(@($microsoftEntraIDUsers).Count)"
+
+    # Send results to HelloID
+    $actionMessage = "sending results to HelloID"
+    $microsoftEntraIDUsers | Add-Member -MemberType NoteProperty -Name "displayValue" -Value $null -Force
+    $microsoftEntraIDUsers | Sort-Object -Property displayName | ForEach-Object {
+        # Set displayValue property with format: Display Name [UserPrincipalName]
+        $_.displayValue = "$($_.displayName) ($($_.userPrincipalName))"
+
+        Write-Output $_
+    }
+}
+catch {
+    $ex = $PSItem
+    if ($($ex.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or
+        $($ex.Exception.GetType().FullName -eq 'System.Net.WebException')) {
+        $errorObj = Resolve-MicrosoftGraphAPIError -ErrorObject $ex
+        $auditMessage = "Error $($actionMessage). Error: $($errorObj.FriendlyMessage)"
+        $warningMessage = "Error at Line [$($errorObj.ScriptLineNumber)]: $($errorObj.Line). Error: $($errorObj.ErrorDetails)"
+    }
+    else {
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
 }
 '@ 
 $tmpModel = @'
-[{"key":"displayValue","type":0},{"key":"userPrincipalName","type":0},{"key":"id","type":0},{"key":"guid","type":0}]
+[{"key":"id","type":0},{"key":"userPrincipalName","type":0},{"key":"displayName","type":0},{"key":"mail","type":0},{"key":"displayValue","type":0}]
 '@ 
 $tmpInput = @'
 [{"description":null,"translateDescription":false,"inputFieldType":1,"key":"selectedMailbox","type":0,"options":1},{"description":null,"translateDescription":false,"inputFieldType":1,"key":"Permission","type":0,"options":1}]
 '@ 
 $dataSourceGuid_2 = [PSCustomObject]@{} 
 $dataSourceGuid_2_Name = @'
-Exchange-user-generate-table-sharedmailbox-manage-generate-table-users-permission
+exchange-online-shared-mailbox-manage-permissions | EXO-Get-Mailbox-Permissions-EntraID-Get-Users
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_2_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_2) 
-<# End: DataSource "Exchange-user-generate-table-sharedmailbox-manage-generate-table-users-permission" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_2_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_2) 
+<# End: DataSource "exchange-online-shared-mailbox-manage-permissions | EXO-Get-Mailbox-Permissions-EntraID-Get-Users" #>
 
-<# Begin: DataSource "exchange-online-shared-mailbox-manage-permissions-generate-table-mailbox-wildcard" #>
+<# Begin: DataSource "exchange-online-shared-mailbox-manage-permissions | EXO-Get-Shared-Mailboxes-Wildcard-Name-EmailAddresses" #>
 $tmpPsScript = @'
-# Warning! When no searchQuery is specified. All mailboxes will be retrieved.
+# Variables configured in form
 $searchValue = $datasource.searchValue
-
-if ([String]::IsNullOrEmpty($searchValue) -or $searchValue -eq "*") {
-    $filter = "*"
+if ($searchValue -eq "*") {
+    $filter = "RecipientTypeDetails -eq 'SharedMailbox'"
 }
 else {
-    $filter = "Name -like '*$searchValue*' -or EmailAddresses -like '*$searchValue*'"
+    $filter = "(Name -like '*$searchValue*' -or EmailAddresses -like '*$searchValue*') -and RecipientTypeDetails -eq 'SharedMailbox'"
 }
 
-# PowerShell commands to import
-$commands = @(
-    "Get-Mailbox"
-    , "Get-EXOMailbox"
+# Global variables
+# Outcommented as these are set from Global Variables
+# $EntraIdTenantId = ""
+# $EntraIdAppId = ""
+# $EntraIdCertificateBase64String = ""
+# $EntraIdCertificatePassword = ""
+
+# Fixed values
+# Properties to select - Select only needed properties to limit memory usage and speed up processing
+$propertiesToSelect = @(
+    "Id"
+    , "Guid"
+    , "ExchangeGuid"
+    , "DisplayName"
+    , "PrimarySmtpAddress"
+    , "EmailAddresses"
+    , "Alias"
+    , "RecipientTypeDetails"
 )
 
-# Set TLS to accept TLS, TLS 1.1 and TLS 1.2
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+# PowerShell commands to import
+# Use Get-EXORecipient instead of Get-Mailbox as Get-EXORecipient is faster
+$commands = @(
+    "Get-Recipient"
+    , "Get-EXORecipient"
+)
 
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
 $VerbosePreference = "SilentlyContinue"
 $InformationPreference = "Continue"
 $WarningPreference = "Continue"
 
 #region functions
-function Resolve-HTTPError {
+function Get-MSEntraCertificate {
     [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificateBase64String,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificatePassword
     )
-    process {
-        $httpErrorObj = [PSCustomObject]@{
-            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId
-            MyCommand             = $ErrorObject.InvocationInfo.MyCommand
-            RequestUri            = $ErrorObject.TargetObject.RequestUri
-            ScriptStackTrace      = $ErrorObject.ScriptStackTrace
-            ErrorMessage          = ''
-        }
-
-        if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
-            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls
-            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
-
-        }
-        elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
-            $httpErrorObj.ErrorMessage = [HelloID.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
-        }
-
-        Write-Output $httpErrorObj
+    try {
+        $rawCertificate = [system.convert]::FromBase64String($CertificateBase64String)
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rawCertificate, $CertificatePassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+        Write-Output $certificate
     }
-}
-
-function Get-ErrorMessage {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        $errorMessage = [PSCustomObject]@{
-            VerboseErrorMessage = $null
-            AuditErrorMessage   = $null
-        }
-
-        if ( $($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or $($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException')) {
-            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject
-
-            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage
-
-            $errorMessage.AuditErrorMessage = $httpErrorObject.ErrorMessage
-        }
-
-        # If error message empty, fall back on $ex.Exception.Message
-        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {
-            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message
-        }
-        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {
-            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message
-        }
-
-        Write-Output $errorMessage
+    catch {
+        $PSCmdlet.ThrowTerminatingError($_)
     }
 }
 #endregion functions
 
-#region Import module
-try {           
-    $moduleName = "ExchangeOnlineManagement"
-
-    # If module is imported say that and do nothing
-    if (Get-Module -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-        Write-Verbose "Module [$ModuleName] is already imported."
-    }
-    else {
-        # If module is not imported, but available on disk then import
-        if (Get-Module -ListAvailable -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {
-            $module = Import-Module $ModuleName -Cmdlet $commands -Verbose:$false
-            Write-Verbose "Imported module [$ModuleName]"
-        }
-        else {
-            # If the module is not imported, not available and not in the online gallery then abort
-            throw "Module [$ModuleName] is not available. Please install the module using: Install-Module -Name [$ModuleName] -Force"
-        }
-    }
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
-
-    # Skip further actions, as this is a critical error
-    throw "Error importing module [$ModuleName]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Import module
-
-#region Connect to Exchange
 try {
-    # Create credentials object
-    Write-Verbose "Creating Credentials object"
-    $securePassword = ConvertTo-SecureString $ExchangeOnlineAdminPassword -AsPlainText -Force
-    $credential = [System.Management.Automation.PSCredential]::new($ExchangeOnlineAdminUsername, $securePassword)
-
-    # Connect to Exchange Online in an unattended scripting scenario using an access token.
-    Write-Verbose "Connecting to Exchange Online"
-
-    $exchangeSessionParams = @{
-        Credential       = $credential
-        CommandName      = $commands
-        ShowBanner       = $false
-        ShowProgress     = $false
-        TrackPerformance = $false
-        ErrorAction      = "Stop"
+    # Import module
+    $actionMessage = "importing module [ExchangeOnlineManagement]"
+        
+    $importModuleSplatParams = @{
+        Name        = "ExchangeOnlineManagement"
+        Cmdlet      = $commands
+        Verbose     = $false
+        ErrorAction = "Stop"
     }
-    $exchangeSession = Connect-ExchangeOnline @exchangeSessionParams
-    
-    Write-Information "Successfully connected to Exchange Online"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
 
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)"
+    $null = Import-Module @importModuleSplatParams
 
-    # Skip further actions, as this is a critical error
-    throw "Error connecting to Exchange Online. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-#endregion Connect to Exchange
+    # Convert base64 certificate string to certificate object
+    $actionMessage = "converting base64 certificate string to certificate object"
 
-#region Get Mailboxes
-try {
-    $properties = @(
-        "Id"
-        , "Guid"
-        , "ExchangeGuid"
-        , "Name"
-        , "DisplayName"
-        , "UserPrincipalName"
-        , "EmailAddresses"
-        , "RecipientTypeDetails"
-        , "Alias"
-    )
+    $certificate = Get-MSEntraCertificate -CertificateBase64String $EntraIdCertificateBase64String -CertificatePassword $EntraIdCertificatePassword
 
-    $exchangeQuerySplatParams = @{
+    # Connect to Microsoft Exchange Online
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/connect-exchangeonline?view=exchange-ps
+    $actionMessage = "connecting to Microsoft Exchange Online"
+
+    $createExchangeSessionSplatParams = @{
+        Organization          = $EntraIdOrganization
+        AppID                 = $EntraIdAppId
+        Certificate           = $certificate
+        CommandName           = $commands
+        ShowBanner            = $false
+        ShowProgress          = $false
+        TrackPerformance      = $false
+        SkipLoadingCmdletHelp = $true
+        SkipLoadingFormatData = $true
+        ErrorAction           = "Stop"
+    }
+
+    $null = Connect-ExchangeOnline @createExchangeSessionSplatParams
+
+    # Get Mailboxes
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-exorecipient?view=exchange-ps
+    $actionMessage = "querying shared mailboxes that match filter [$($filter)]"
+
+    $getMailboxesSplatParams = @{
         RecipientTypeDetails = "SharedMailbox"
         ResultSize           = "Unlimited"
-    }
-    if (-not[String]::IsNullOrEmpty($filter)) {
-        $exchangeQuerySplatParams.Add("Filter", $filter)
+        Filter               = $filter
+        Properties           = $propertiesToSelect
+        ErrorAction          = 'Stop'
     }
 
-    Write-Information "Querying shared mailboxes that match filter [$($exchangeQuerySplatParams.Filter)]"
-    $mailboxes = Get-EXOMailbox @exchangeQuerySplatParams | Select-Object $properties
+    $mailboxes = Get-EXORecipient @getMailboxesSplatParams | Select-Object -Property $propertiesToSelect
+    Write-Information "Queried shared mailboxes that match filter [$($filter)]. Result count: $(($mailboxes | Measure-Object).Count)"
 
-    $mailboxes = $mailboxes | Sort-Object -Property Name
-    $resultCount = ($mailboxes | Measure-Object).Count
-    Write-Information "Result count: $resultCount"
-
-    # # Filter out mailboxes without name
-    # Write-Information "Filtering out mailboxes without [name]"
-    # $mailboxes = $mailboxes | Where-Object { -NOT[String]::IsNullOrEmpty($_.name) }
-    # $resultCount = ($mailboxes | Measure-Object).Count
-    # Write-Information "Result count: $resultCount"
-    
-    if ($resultCount -gt 0) {
-        foreach ($mailbox in $mailboxes) {
-            Write-Output $mailbox
-        }
-    }
+    # Sort and Send results to HelloID
+    $actionMessage = "sending results to HelloID"
+    $mailboxes | Sort-Object -Property DisplayName | ForEach-Object {
+        Write-Output $_
+    } 
 }
 catch {
     $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line '$($ex.InvocationInfo.ScriptLineNumber)': $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error querying shared mailboxes that match filter [$($exchangeQuerySplatParams.Filter)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)"
+    }
+    else {
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+    # exit # use when using multiple try/catch and the script must stop
 }
-#endregion Get Mailboxes
+finally {
+    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/disconnect-exchangeonline?view=exchange-ps
+    $deleteExchangeSessionSplatParams = @{
+        Confirm     = $false
+        ErrorAction = "Stop"
+    }
+    $null = Disconnect-ExchangeOnline @deleteExchangeSessionSplatParams
+}
 '@ 
 $tmpModel = @'
-[{"key":"Id","type":0},{"key":"Guid","type":0},{"key":"Name","type":0},{"key":"DisplayName","type":0},{"key":"UserPrincipalName","type":0},{"key":"EmailAddresses","type":0},{"key":"RecipientTypeDetails","type":0},{"key":"Alias","type":0}]
+[{"key":"Id","type":0},{"key":"Guid","type":0},{"key":"ExchangeGuid","type":0},{"key":"DisplayName","type":0},{"key":"PrimarySmtpAddress","type":0},{"key":"EmailAddresses","type":0},{"key":"Alias","type":0},{"key":"RecipientTypeDetails","type":0}]
 '@ 
 $tmpInput = @'
 [{"description":null,"translateDescription":false,"inputFieldType":1,"key":"searchValue","type":0,"options":1}]
 '@ 
 $dataSourceGuid_0 = [PSCustomObject]@{} 
 $dataSourceGuid_0_Name = @'
-exchange-online-shared-mailbox-manage-permissions-generate-table-mailbox-wildcard
+exchange-online-shared-mailbox-manage-permissions | EXO-Get-Shared-Mailboxes-Wildcard-Name-EmailAddresses
 '@ 
-Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -returnObject ([Ref]$dataSourceGuid_0) 
-<# End: DataSource "exchange-online-shared-mailbox-manage-permissions-generate-table-mailbox-wildcard" #>
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_0_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_0) 
+<# End: DataSource "exchange-online-shared-mailbox-manage-permissions | EXO-Get-Shared-Mailboxes-Wildcard-Name-EmailAddresses" #>
+
+<# Begin: DataSource "exchange-online-shared-mailbox-manage-permissions | EntraID-Get-All-Users" #>
+$tmpPsScript = @'
+$filter = "`$filter=userType eq 'Member'" # Get all users, excluding guest users
+
+# Global variables
+# Outcommented as these are set from Global Variables
+# $EntraIdTenantId = ""
+# $EntraIdAppId = ""
+# $EntraIdCertificateBase64String = ""
+# $EntraIdCertificatePassword = ""
+
+# Fixed values
+# Properties to select - Select only needed properties to limit memory usage and speed up processing
+$propertiesToSelect = @(
+    "id",
+    "userPrincipalName",
+    "displayName",
+    "mail"
+)
+
+# Enable TLS1.2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
+
+#region functions
+function Resolve-MicrosoftGraphAPIError {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]
+        $ErrorObject
+    )
+    process {
+        $httpErrorObj = [PSCustomObject]@{
+            ScriptLineNumber = $ErrorObject.InvocationInfo.ScriptLineNumber
+            Line             = $ErrorObject.InvocationInfo.Line
+            ErrorDetails     = $ErrorObject.Exception.Message
+            FriendlyMessage  = $ErrorObject.Exception.Message
+        }
+        if (-not [string]::IsNullOrEmpty($ErrorObject.ErrorDetails.Message)) {
+            $httpErrorObj.ErrorDetails = $ErrorObject.ErrorDetails.Message
+        }
+        elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
+            if ($null -ne $ErrorObject.Exception.Response) {
+                $streamReaderResponse = [System.IO.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
+                if (-not [string]::IsNullOrEmpty($streamReaderResponse)) {
+                    $httpErrorObj.ErrorDetails = $streamReaderResponse
+                }
+            }
+        }
+        try {
+            $errorDetailsObject = ($httpErrorObj.ErrorDetails | ConvertFrom-Json -ErrorAction Stop)
+            if ($errorDetailsObject.error_description) {
+                $httpErrorObj.FriendlyMessage = $errorDetailsObject.error_description
+            }
+            elseif ($errorDetailsObject.error.message) {
+                $httpErrorObj.FriendlyMessage = "$($errorDetailsObject.error.code): $($errorDetailsObject.error.message)"
+            }
+            elseif ($errorDetailsObject.error.details.message) {
+                $httpErrorObj.FriendlyMessage = "$($errorDetailsObject.error.details.code): $($errorDetailsObject.error.details.message)"
+            }
+            else {
+                $httpErrorObj.FriendlyMessage = $httpErrorObj.ErrorDetails
+            }
+        }
+        catch {
+            $httpErrorObj.FriendlyMessage = $httpErrorObj.ErrorDetails
+        }
+        Write-Output $httpErrorObj
+    }
+}
+
+function Get-MSEntraAccessToken {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNull()]
+        $Certificate,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $AppId,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $TenantId
+    )
+    try {
+        # Get the DER encoded bytes of the certificate
+        $derBytes = $Certificate.RawData
+
+        # Compute the SHA-256 hash of the DER encoded bytes
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $hashBytes = $sha256.ComputeHash($derBytes)
+        $base64Thumbprint = [System.Convert]::ToBase64String($hashBytes).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Create a JWT (JSON Web Token) header
+        $header = @{
+            'alg'      = 'RS256'
+            'typ'      = 'JWT'
+            'x5t#S256' = $base64Thumbprint
+        } | ConvertTo-Json
+        $base64Header = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($header))
+
+        # Calculate the Unix timestamp (seconds since 1970-01-01T00:00:00Z) for 'exp', 'nbf' and 'iat'
+        $currentUnixTimestamp = [math]::Round(((Get-Date).ToUniversalTime() - ([datetime]'1970-01-01T00:00:00Z').ToUniversalTime()).TotalSeconds)
+
+        # Create a JWT payload
+        $payload = [Ordered]@{
+            'iss' = "$($AppId)"
+            'sub' = "$($AppId)"
+            'aud' = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
+            'exp' = ($currentUnixTimestamp + 3600) # Expires in 1 hour
+            'nbf' = ($currentUnixTimestamp - 300) # Not before 5 minutes ago
+            'iat' = $currentUnixTimestamp
+            'jti' = [Guid]::NewGuid().ToString()
+        } | ConvertTo-Json
+        $base64Payload = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payload)).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Extract the private key from the certificate
+        $rsaPrivate = $Certificate.PrivateKey
+        $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
+        $rsa.ImportParameters($rsaPrivate.ExportParameters($true))
+
+        # Sign the JWT
+        $signatureInput = "$base64Header.$base64Payload"
+        $signature = $rsa.SignData([Text.Encoding]::UTF8.GetBytes($signatureInput), 'SHA256')
+        $base64Signature = [System.Convert]::ToBase64String($signature).Replace('+', '-').Replace('/', '_').Replace('=', '')
+
+        # Ensure the certificate has a private key
+        if (-not $Certificate.HasPrivateKey -or -not $Certificate.PrivateKey) {
+            throw "The certificate does not have a private key."
+        }
+
+        # Create the JWT token
+        $jwtToken = "$($base64Header).$($base64Payload).$($base64Signature)"
+
+        $createEntraAccessTokenBody = @{
+            grant_type            = 'client_credentials'
+            client_id             = $AppId
+            client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+            client_assertion      = $jwtToken
+            resource              = 'https://graph.microsoft.com'
+        }
+
+        $createEntraAccessTokenSplatParams = @{
+            Uri         = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
+            Body        = $createEntraAccessTokenBody
+            Method      = 'POST'
+            ContentType = 'application/x-www-form-urlencoded'
+            Verbose     = $false
+            ErrorAction = 'Stop'
+        }
+
+        $createEntraAccessTokenResponse = Invoke-RestMethod @createEntraAccessTokenSplatParams
+        Write-Output $createEntraAccessTokenResponse.access_token
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError($_)
+    }
+}
+
+function Get-MSEntraCertificate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificateBase64String,
+        
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $CertificatePassword
+    )
+    try {
+        $rawCertificate = [system.convert]::FromBase64String($CertificateBase64String)
+        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rawCertificate, $CertificatePassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+        Write-Output $certificate
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError($_)
+    }
+}
+#endregion functions
+
+try {
+    # Convert base64 certificate string to certificate object
+    $actionMessage = "converting base64 certificate string to certificate object"
+    $certificate = Get-MSEntraCertificate -CertificateBase64String $EntraIdCertificateBase64String -CertificatePassword $EntraIdCertificatePassword
+
+    # Create access token
+    $actionMessage = "creating access token"
+    $entraToken = Get-MSEntraAccessToken -Certificate $certificate -AppId $EntraIdAppId -TenantId $EntraIdTenantId
+
+    # Create headers
+    $actionMessage = "creating headers"
+    $headers = @{
+        "Authorization"    = "Bearer $($entraToken)"
+        "Accept"           = "application/json"
+        "Content-Type"     = "application/json"
+        "ConsistencyLevel" = "eventual" # Needed to filter on specific attributes (https://docs.microsoft.com/en-us/graph/aad-advanced-queries)
+    }
+
+    # Get Microsoft Entra ID Users
+    # API docs: https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0&tabs=http
+    $actionMessage = "querying Microsoft Entra ID Users matching filter [$filter]"
+    $microsoftEntraIDUsers = [System.Collections.ArrayList]@()
+    do {
+        $getMicrosoftEntraIDUsersSplatParams = @{
+            Uri         = "https://graph.microsoft.com/v1.0/users?$filter&`$select=$($propertiesToSelect -join ',')&`$top=999&`$count=true"
+            Headers     = $headers
+            Method      = "GET"
+            Verbose     = $false
+            ErrorAction = "Stop"
+        }
+        if (-not[string]::IsNullOrEmpty($getMicrosoftEntraIDUsersResponse.'@odata.nextLink')) {
+            $getMicrosoftEntraIDUsersSplatParams["Uri"] = $getMicrosoftEntraIDUsersResponse.'@odata.nextLink'
+        }
+        
+        $getMicrosoftEntraIDUsersResponse = $null
+        $getMicrosoftEntraIDUsersResponse = Invoke-RestMethod @getMicrosoftEntraIDUsersSplatParams
+    
+        # Select only specified properties to limit memory usage
+        $getMicrosoftEntraIDUsersResponse.Value = $getMicrosoftEntraIDUsersResponse.Value | Select-Object $propertiesToSelect
+
+        if ($getMicrosoftEntraIDUsersResponse.Value -is [array]) {
+            [void]$microsoftEntraIDUsers.AddRange($getMicrosoftEntraIDUsersResponse.Value)
+        }
+        else {
+            [void]$microsoftEntraIDUsers.Add($getMicrosoftEntraIDUsersResponse.Value)
+        }
+    } while (-not[string]::IsNullOrEmpty($getMicrosoftEntraIDUsersResponse.'@odata.nextLink'))
+    Write-Information "Queried Microsoft Entra ID Users matching filter [$filter]. Result count: $(@($microsoftEntraIDUsers).Count)"
+
+    # Send results to HelloID
+    $actionMessage = "sending results to HelloID"
+    $microsoftEntraIDUsers | Add-Member -MemberType NoteProperty -Name "displayValue" -Value $null -Force
+    $microsoftEntraIDUsers | Sort-Object -Property displayName | ForEach-Object {
+        # Set displayValue property with format: Display Name [UserPrincipalName]
+        $_.displayValue = "$($_.displayName) ($($_.userPrincipalName))"
+
+        Write-Output $_
+    }
+}
+catch {
+    $ex = $PSItem
+    if ($($ex.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or
+        $($ex.Exception.GetType().FullName -eq 'System.Net.WebException')) {
+        $errorObj = Resolve-MicrosoftGraphAPIError -ErrorObject $ex
+        $auditMessage = "Error $($actionMessage). Error: $($errorObj.FriendlyMessage)"
+        $warningMessage = "Error at Line [$($errorObj.ScriptLineNumber)]: $($errorObj.Line). Error: $($errorObj.ErrorDetails)"
+    }
+    else {
+        $auditMessage = "Error $($actionMessage). Error: $($ex.Exception.Message)"
+        $warningMessage = "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)"
+    }
+    Write-Warning $warningMessage
+    Write-Error $auditMessage
+}
+  
+'@ 
+$tmpModel = @'
+[{"key":"id","type":0},{"key":"userPrincipalName","type":0},{"key":"displayName","type":0},{"key":"mail","type":0},{"key":"displayValue","type":0}]
+'@ 
+$tmpInput = @'
+[]
+'@ 
+$dataSourceGuid_1 = [PSCustomObject]@{} 
+$dataSourceGuid_1_Name = @'
+exchange-online-shared-mailbox-manage-permissions | EntraID-Get-All-Users
+'@ 
+Invoke-HelloIDDatasource -DatasourceName $dataSourceGuid_1_Name -DatasourceType "4" -DatasourceInput $tmpInput -DatasourcePsScript $tmpPsScript -DatasourceModel $tmpModel -DataSourceRunInCloud "False" -returnObject ([Ref]$dataSourceGuid_1) 
+<# End: DataSource "exchange-online-shared-mailbox-manage-permissions | EntraID-Get-All-Users" #>
 <# End: HelloID Data sources #>
 
 <# Begin: Dynamic Form "Exchange online - Shared mailbox - Manage permissions" #>
 $tmpSchema = @"
-[{"label":"Details","fields":[{"templateOptions":{},"type":"markdown","summaryVisibility":"Show","body":"Retrieving this information from Exchange takes an average of +/- 10 seconds.  \nPlease wait while we load the data.","requiresTemplateOptions":false,"requiresKey":false,"requiresDataSource":false},{"key":"searchMailbox","templateOptions":{"label":"Search","placeholder":""},"type":"input","summaryVisibility":"Hide element","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"gridMailbox","templateOptions":{"label":"Mailbox","required":true,"grid":{"columns":[{"headerName":"Name","field":"Name"},{"headerName":"Display Name","field":"DisplayName"},{"headerName":"User Principal Name","field":"UserPrincipalName"},{"headerName":"Email Addresses","field":"EmailAddresses"},{"headerName":"Alias","field":"Alias"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[{"propertyName":"searchValue","otherFieldValue":{"otherFieldKey":"searchMailbox"}}]}},"useDefault":false},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]},{"label":"Mailbox Permissions","fields":[{"templateOptions":{},"type":"markdown","summaryVisibility":"Show","body":"Retrieving this information from Exchange takes an average of +/- 30 seconds.  \nPlease wait while we load the data.","requiresTemplateOptions":false,"requiresKey":false,"requiresDataSource":false},{"key":"permission","templateOptions":{"label":"Permission","required":false,"useObjects":true,"useDataSource":false,"useFilter":false,"options":[{"value":"fullaccess","text":"Full Access"},{"value":"sendas","text":"Send As"},{"value":"sendonbehalf","text":"Send on Behalf"}]},"type":"dropdown","summaryVisibility":"Show","textOrLabel":"text","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"permissionList","templateOptions":{"label":"Full Access permissions","required":false,"filterable":true,"useDataSource":true,"dualList":{"options":[{"guid":"75ea2890-88f8-4851-b202-626123054e14","Name":"Apple"},{"guid":"0607270d-83e2-4574-9894-0b70011b663f","Name":"Pear"},{"guid":"1ef6fe01-3095-4614-a6db-7c8cd416ae3b","Name":"Orange"}],"optionKeyProperty":"guid","optionDisplayProperty":"displayValue"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[]}},"destinationDataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_2","input":{"propertyInputs":[{"propertyName":"selectedMailbox","otherFieldValue":{"otherFieldKey":"gridMailbox"}},{"propertyName":"Permission","otherFieldValue":{"otherFieldKey":"permission"}}]}}},"hideExpression":"!model[\"permission\"]","type":"duallist","summaryVisibility":"Show","sourceDataSourceIdentifierSuffix":"source-datasource","destinationDataSourceIdentifierSuffix":"destination-datasource","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]}]
+[{"label":"Select mailbox","fields":[{"templateOptions":{"title":"Retrieving this information from Exchange takes an average of +/- 10 seconds. Please wait while the data is loaded.","titleField":"","bannerType":"Info","useBody":false},"type":"textbanner","summaryVisibility":"Hide element","body":"Text Banner Content","requiresTemplateOptions":false,"requiresKey":false,"requiresDataSource":false},{"key":"searchMailbox","templateOptions":{"label":"Search (wildcard search in Name and Email addresses)","placeholder":"Name or Email addresses (use * to search all shared mailboxes)","required":true},"type":"input","summaryVisibility":"Hide element","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"gridMailbox","templateOptions":{"label":"Mailbox","required":true,"grid":{"columns":[{"headerName":"Display Name","field":"DisplayName"},{"headerName":"Primary Smtp Address","field":"PrimarySmtpAddress"},{"headerName":"Email Addresses","field":"EmailAddresses"},{"headerName":"Alias","field":"Alias"}],"height":300,"rowSelection":"single"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_0","input":{"propertyInputs":[{"propertyName":"searchValue","otherFieldValue":{"otherFieldKey":"searchMailbox"}}]}},"useDefault":false,"allowCsvDownload":true},"type":"grid","summaryVisibility":"Show","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":true}]},{"label":"Mailbox Permissions","fields":[{"templateOptions":{"title":"Retrieving this information from Exchange takes an average of +/- 30 seconds. Please wait while the data is loaded.","titleField":"","bannerType":"Info","useBody":false},"type":"textbanner","summaryVisibility":"Hide element","body":"Text Banner Content","requiresTemplateOptions":false,"requiresKey":false,"requiresDataSource":false},{"key":"permission","templateOptions":{"label":"Permission","required":false,"useObjects":true,"useDataSource":false,"useFilter":false,"options":[{"value":"fullaccess","text":"Full Access"},{"value":"sendas","text":"Send As"},{"value":"sendonbehalf","text":"Send on Behalf"}]},"type":"dropdown","summaryVisibility":"Show","textOrLabel":"text","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false},{"key":"permissionList","templateOptions":{"label":"Mailbox permissions","required":false,"filterable":true,"useDataSource":true,"dualList":{"options":[{"guid":"75ea2890-88f8-4851-b202-626123054e14","Name":"Apple"},{"guid":"0607270d-83e2-4574-9894-0b70011b663f","Name":"Pear"},{"guid":"1ef6fe01-3095-4614-a6db-7c8cd416ae3b","Name":"Orange"}],"optionKeyProperty":"id","optionDisplayProperty":"displayValue"},"dataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_1","input":{"propertyInputs":[]}},"destinationDataSourceConfig":{"dataSourceGuid":"$dataSourceGuid_2","input":{"propertyInputs":[{"propertyName":"selectedMailbox","otherFieldValue":{"otherFieldKey":"gridMailbox"}},{"propertyName":"Permission","otherFieldValue":{"otherFieldKey":"permission"}}]}}},"hideExpression":"!model[\"permission\"]","type":"duallist","summaryVisibility":"Show","sourceDataSourceIdentifierSuffix":"source-datasource","destinationDataSourceIdentifierSuffix":"destination-datasource","requiresTemplateOptions":true,"requiresKey":true,"requiresDataSource":false}]}]
 "@ 
 
 $dynamicFormGuid = [PSCustomObject]@{} 
@@ -967,7 +1212,7 @@ if(-not[String]::IsNullOrEmpty($delegatedFormAccessGroupNames)){
             $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
             $delegatedFormAccessGroupGuid = $response.groupGuid
             $delegatedFormAccessGroupGuids += $delegatedFormAccessGroupGuid
-            
+        
             Write-Information "HelloID (access)group '$group' successfully found$(if ($script:debugLogging -eq $true) { ": " + $delegatedFormAccessGroupGuid })"
         } catch {
             Write-Error "HelloID (access)group '$group', message: $_"
@@ -977,16 +1222,17 @@ if(-not[String]::IsNullOrEmpty($delegatedFormAccessGroupNames)){
         $delegatedFormAccessGroupGuids = ($delegatedFormAccessGroupGuids | Select-Object -Unique | ConvertTo-Json -Depth 100 -Compress)
     }
 }
+
 $delegatedFormCategoryGuids = @()
 foreach($category in $delegatedFormCategories) {
     try {
         $uri = ($script:PortalBaseUrl +"api/v1/delegatedformcategories/$category")
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false
         $response = $response | Where-Object {$_.name.en -eq $category}
-        
+    
         $tmpGuid = $response.delegatedFormCategoryGuid
         $delegatedFormCategoryGuids += $tmpGuid
-        
+    
         Write-Information "HelloID Delegated Form category '$category' successfully found$(if ($script:debugLogging -eq $true) { ": " + $tmpGuid })"
     } catch {
         Write-Warning "HelloID Delegated Form category '$category' not found"
@@ -994,10 +1240,12 @@ foreach($category in $delegatedFormCategories) {
             name = @{"en" = $category};
         }
         $body = ConvertTo-Json -InputObject $body -Depth 100
+
         $uri = ($script:PortalBaseUrl +"api/v1/delegatedformcategories")
         $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $script:headers -ContentType "application/json" -Verbose:$false -Body $body
         $tmpGuid = $response.delegatedFormCategoryGuid
         $delegatedFormCategoryGuids += $tmpGuid
+
         Write-Information "HelloID Delegated Form category '$category' successfully created$(if ($script:debugLogging -eq $true) { ": " + $tmpGuid })"
     }
 }
@@ -1007,10 +1255,10 @@ $delegatedFormCategoryGuids = (ConvertTo-Json -InputObject $delegatedFormCategor
 <# Begin: Delegated Form #>
 $delegatedFormRef = [PSCustomObject]@{guid = $null; created = $null} 
 $delegatedFormName = @'
-Exchange online - Shared mailbox - Manage permissions
+Exchange online - Shared Mailbox - Manage permissions
 '@
 $tmpTask = @'
-{"name":"Exchange online - Shared mailbox - Manage permissions","script":"$identity = $form.gridMailbox.id\r\n$permission = $form.permission\r\n$usersToAdd = $form.permissionList.leftToRight\r\n$usersToRemove = $form.permissionList.rightToLeft\r\n\r\n# Fixed values\r\n$AutoMapping = $false\r\n\r\n# PowerShell commands to import\r\n$commands = @(\r\n    \"Get-Mailbox\"\r\n    , \"Get-EXOMailbox\"\r\n    , \"Set-Mailbox\"\r\n    , \"Add-MailboxPermission\"\r\n    , \"Add-RecipientPermission\"\r\n    , \"Remove-MailboxPermission\"\r\n    , \"Remove-RecipientPermission\"\r\n)\r\n\r\n# Set TLS to accept TLS, TLS 1.1 and TLS 1.2\r\n[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12\r\n\r\n$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n#region functions\r\nfunction Resolve-HTTPError {\r\n    [CmdletBinding()]\r\n    param (\r\n        [Parameter(Mandatory,\r\n            ValueFromPipeline\r\n        )]\r\n        [object]$ErrorObject\r\n    )\r\n    process {\r\n        $httpErrorObj = [PSCustomObject]@{\r\n            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId\r\n            MyCommand             = $ErrorObject.InvocationInfo.MyCommand\r\n            RequestUri            = $ErrorObject.TargetObject.RequestUri\r\n            ScriptStackTrace      = $ErrorObject.ScriptStackTrace\r\n            ErrorMessage          = \u0027\u0027\r\n        }\r\n\r\n        if ($ErrorObject.Exception.GetType().FullName -eq \u0027Microsoft.PowerShell.Commands.HttpResponseException\u0027) {\r\n            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls\r\n            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message\r\n\r\n        }\r\n        elseif ($ErrorObject.Exception.GetType().FullName -eq \u0027System.Net.WebException\u0027) {\r\n            $httpErrorObj.ErrorMessage = [HelloID.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()\r\n        }\r\n\r\n        Write-Output $httpErrorObj\r\n    }\r\n}\r\n\r\nfunction Get-ErrorMessage {\r\n    [CmdletBinding()]\r\n    param (\r\n        [Parameter(Mandatory,\r\n            ValueFromPipeline\r\n        )]\r\n        [object]$ErrorObject\r\n    )\r\n    process {\r\n        $errorMessage = [PSCustomObject]@{\r\n            VerboseErrorMessage = $null\r\n            AuditErrorMessage   = $null\r\n        }\r\n\r\n        if ( $($ErrorObject.Exception.GetType().FullName -eq \u0027Microsoft.PowerShell.Commands.HttpResponseException\u0027) -or $($ErrorObject.Exception.GetType().FullName -eq \u0027System.Net.WebException\u0027)) {\r\n            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject\r\n\r\n            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage\r\n\r\n            $errorMessage.AuditErrorMessage = $httpErrorObject.ErrorMessage\r\n        }\r\n\r\n        # If error message empty, fall back on $ex.Exception.Message\r\n        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {\r\n            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message\r\n        }\r\n        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {\r\n            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message\r\n        }\r\n\r\n        Write-Output $errorMessage\r\n    }\r\n}\r\n#endregion functions\r\n\r\n#region Import module\r\ntry {           \r\n    $moduleName = \"ExchangeOnlineManagement\"\r\n\r\n    # If module is imported say that and do nothing\r\n    if (Get-Module -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {\r\n        Write-Verbose \"Module [$ModuleName] is already imported.\"\r\n    }\r\n    else {\r\n        # If module is not imported, but available on disk then import\r\n        if (Get-Module -ListAvailable -Verbose:$false | Where-Object { $_.Name -eq $ModuleName }) {\r\n            $module = Import-Module $ModuleName -Cmdlet $commands -Verbose:$false\r\n            Write-Verbose \"Imported module [$ModuleName]\"\r\n        }\r\n        else {\r\n            # If the module is not imported, not available and not in the online gallery then abort\r\n            throw \"Module [$ModuleName] is not available. Please install the module using: Install-Module -Name [$ModuleName] -Force\"\r\n        }\r\n    }\r\n}\r\ncatch {\r\n    $ex = $PSItem\r\n    $errorMessage = Get-ErrorMessage -ErrorObject $ex\r\n\r\n    Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)\"\r\n\r\n    # Skip further actions, as this is a critical error\r\n    throw \"Error importing module [$ModuleName]. Error Message: $($errorMessage.AuditErrorMessage)\"\r\n}\r\n#endregion Import module\r\n\r\n#region Connect to Exchange\r\ntry {\r\n    # Create credentials object\r\n    Write-Verbose \"Creating Credentials object\"\r\n    $securePassword = ConvertTo-SecureString $ExchangeOnlineAdminPassword -AsPlainText -Force\r\n    $credential = [System.Management.Automation.PSCredential]::new($ExchangeOnlineAdminUsername, $securePassword)\r\n\r\n    # Connect to Exchange Online in an unattended scripting scenario using an access token.\r\n    Write-Verbose \"Connecting to Exchange Online\"\r\n\r\n    $exchangeSessionParams = @{\r\n        Credential       = $credential\r\n        CommandName      = $commands\r\n        ShowBanner       = $false\r\n        ShowProgress     = $false\r\n        TrackPerformance = $false\r\n        ErrorAction      = \"Stop\"\r\n    }\r\n    $exchangeSession = Connect-ExchangeOnline @exchangeSessionParams\r\n    \r\n    Write-Information \"Successfully connected to Exchange Online\"\r\n}\r\ncatch {\r\n    $ex = $PSItem\r\n    $errorMessage = Get-ErrorMessage -ErrorObject $ex\r\n\r\n    Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($errorMessage.VerboseErrorMessage)\"\r\n\r\n    # Skip further actions, as this is a critical error\r\n    throw \"Error connecting to Exchange Online. Error Message: $($errorMessage.AuditErrorMessage)\"\r\n}\r\n#endregion Connect to Exchange\r\n\r\n#region Get Mailbox\r\ntry {\r\n    $properties = @(\r\n        \"Id\"\r\n        , \"Guid\"\r\n        , \"ExchangeGuid\"\r\n        , \"DistinguishedName\"\r\n        , \"Name\"\r\n        , \"DisplayName\"\r\n        , \"UserPrincipalName\"\r\n        , \"EmailAddresses\"\r\n        , \"RecipientTypeDetails\"\r\n        , \"Alias\"\r\n    )\r\n\r\n    $exchangeQuerySplatParams = @{\r\n        Identity   = $identity\r\n        ResultSize = \"Unlimited\"\r\n    }\r\n\r\n    Write-Information \"Querying mailbox with identity [$identity]\"\r\n    $mailbox = Get-EXOMailbox @exchangeQuerySplatParams | Select-Object $properties\r\n}\r\ncatch {\r\n    $ex = $PSItem\r\n    $errorMessage = Get-ErrorMessage -ErrorObject $ex\r\n\r\n    Write-Verbose \"Error at Line \u0027$($ex.InvocationInfo.ScriptLineNumber)\u0027: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))\"\r\n\r\n    throw \"Error querying mailbox with identity [$identity]. Error Message: $($errorMessage.AuditErrorMessage)\"\r\n}\r\n#endregion Get Mailbox\r\n\r\n#region Grant selected users permissions to shared mailbox\r\nforeach ($userToAdd in $usersToAdd) {\r\n    switch ($permission) {\r\n        \"fullaccess\" {\r\n            #region Grant Full Access to shared mailbox\r\n            try {\r\n                Write-Verbose \"Granting permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\"\r\n\r\n                $FullAccessPermissionSplatParams = @{\r\n                    Identity        = $mailbox.Guid\r\n                    User            = $userToAdd.guid\r\n                    AccessRights    = \"FullAccess\"\r\n                    InheritanceType = \"All\"\r\n                    AutoMapping     = $automapping\r\n                    ErrorAction     = \"Stop\"\r\n                    WarningAction   = \"SilentlyContinue\"\r\n                } \r\n\r\n                $addFullAccessPermission = Add-MailboxPermission @FullAccessPermissionSplatParams\r\n\r\n                Write-Information \"Successfully granted permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully granted permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to grant permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]. Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Error granting permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]. Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Grant Full Access to shared mailbox\r\n            break\r\n        }\r\n            \r\n        \"sendas\" {\r\n            #region Grant Send As to shared mailbox\r\n            try {\r\n                Write-Verbose \"Granting permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\"\r\n\r\n                $sendAsPermissionSplatParams = @{\r\n                    Identity     = $mailbox.Guid\r\n                    Trustee      = $userToAdd.guid\r\n                    AccessRights = \"SendAs\"\r\n                    Confirm      = $false\r\n                    ErrorAction  = \"Stop\"\r\n                } \r\n\r\n                $addSendAsPermission = Add-RecipientPermission @sendAsPermissionSplatParams\r\n\r\n                Write-Information \"Successfully granted permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully granted permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to grant permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid)). Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Failed to grant permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid)). Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Grant Send As to shared mailbox\r\n            break\r\n        }\r\n\r\n        \"sendonbehalf\" {\r\n            #region Grant Send on Behalf to shared mailbox\r\n            try {\r\n                Write-Verbose \"Granting permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\"\r\n\r\n                $SendonBehalfPermissionSplatParams = @{\r\n                    Identity            = $mailbox.Guid\r\n                    GrantSendOnBehalfTo = @{ add = \"$($userToAdd.guid)\" }\r\n                    Confirm             = $false\r\n                    ErrorAction         = \"Stop\"\r\n                } \r\n\r\n                $addSendonBehalfPermission = Set-Mailbox @SendonBehalfPermissionSplatParams\r\n\r\n                Write-Information \"Successfully granted permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully granted permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to grant permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]. Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Error granting permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.UserPrincipalName) ($($userToAdd.guid))]. Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Grant Send on Behalf to shared mailbox\r\n            break\r\n        }\r\n    }\r\n    #endregion Grant selected users permissions to shared mailbox\r\n}\r\n\r\n#region Revoke selected users permissions from shared mailbox\r\nforeach ($userToRemove in $usersToRemove) {\r\n    switch ($permission) {\r\n        \"fullaccess\" {\r\n            #region Revoke Full Access to shared mailbox\r\n            try {\r\n                Write-Verbose \"Revoking permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\"\r\n\r\n                $FullAccessPermissionSplatParams = @{\r\n                    Identity        = $mailbox.Guid\r\n                    User            = $userToRemove.guid\r\n                    AccessRights    = \"FullAccess\"\r\n                    InheritanceType = \"All\"\r\n                    ErrorAction     = \"Stop\"\r\n                    WarningAction   = \"SilentlyContinue\"\r\n                } \r\n\r\n                $removeFullAccessPermission = Remove-MailboxPermission @FullAccessPermissionSplatParams\r\n\r\n                Write-Information \"Successfully revoked permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully revoked permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to revoke permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]. Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Error revoking permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]. Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Revoke Full Access to shared mailbox\r\n            break\r\n        }\r\n            \r\n        \"sendas\" {\r\n            #region Revoke Send As to shared mailbox\r\n            try {\r\n                Write-Verbose \"Revoking permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\"\r\n\r\n                $sendAsPermissionSplatParams = @{\r\n                    Identity     = $mailbox.Guid\r\n                    Trustee      = $userToRemove.guid\r\n                    AccessRights = \"SendAs\"\r\n                    Confirm      = $false\r\n                    ErrorAction  = \"Stop\"\r\n                } \r\n\r\n                $removeSendAsPermission = Remove-RecipientPermission @sendAsPermissionSplatParams\r\n\r\n                Write-Information \"Successfully revoked permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully revoked permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to revoke permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid)). Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back  \r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Failed to revoke permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid)). Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Revoke Send As to shared mailbox\r\n            break\r\n        }\r\n\r\n        \"sendonbehalf\" {\r\n            #region Revoke Send on Behalf to shared mailbox\r\n            try {\r\n                Write-Verbose \"Revoking permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\"\r\n\r\n                $SendonBehalfPermissionSplatParams = @{\r\n                    Identity            = $mailbox.Guid\r\n                    GrantSendOnBehalfTo = @{ remove = \"$($userToRemove.guid)\" }\r\n                    Confirm             = $false\r\n                    ErrorAction         = \"Stop\"\r\n                } \r\n\r\n                $removeSendonBehalfPermission = Set-Mailbox @SendonBehalfPermissionSplatParams\r\n\r\n                Write-Information \"Successfully revoked permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text) \r\n                    Message           = \"Successfully revoked permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]\" # required (free format text) \r\n                    IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n            }\r\n            catch {\r\n                # Clean up error variables\r\n                $verboseErrorMessage = $null\r\n                $auditErrorMessage = $null\r\n\r\n                $ex = $PSItem\r\n                # If error message empty, fall back on $ex.Exception.Message\r\n                if ([String]::IsNullOrEmpty($verboseErrorMessage)) {\r\n                    $verboseErrorMessage = $ex.Exception.Message\r\n                }\r\n                if ([String]::IsNullOrEmpty($auditErrorMessage)) {\r\n                    $auditErrorMessage = $ex.Exception.Message\r\n                }\r\n\r\n                Write-Verbose \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($verboseErrorMessage)\"\r\n\r\n                # Audit log for HelloID\r\n                $Log = @{\r\n                    Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                    System            = \"Exchange\" # optional (free format text)\r\n                    Message           = \"Failed to revoke permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]. Error Message: $auditErrorMessage\" # required (free format text) \r\n                    IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                    TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                    TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                }\r\n                #send result back\r\n                Write-Information -Tags \"Audit\" -MessageData $log\r\n\r\n                Write-Error \"Error revoking permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.guid))]. Error Message: $auditErrorMessage\"\r\n            }\r\n            #endregion Revoke Send on Behalf to shared mailbox\r\n            break\r\n        }\r\n    }\r\n    #endregion Revoke selected users permissions to shared mailbox\r\n}","runInCloud":false}
+{"name":"- WIP - Exchange online - Shared Mailbox - Manage permissions","script":"# variables configured in form\r\n$mailbox = $form.gridMailbox\r\n$permission = $form.permission\r\n$usersToAdd = $form.permissionList.leftToRight\r\n$usersToRemove = $form.permissionList.rightToLeft\r\n\r\n# Global variables\r\n# Outcommented as these are set from Global Variables\r\n# $EntraIdOrganization = \"\"\r\n# $EntraIdAppId = \"\"\r\n# $EntraIdCertificateBase64String = \"\"\r\n# $EntraIdCertificatePassword = \"\"\r\n\r\n# Fixed values\r\n$commands = @(\r\n    \"Add-MailboxPermission\",\r\n    \"Add-RecipientPermission\",\r\n    \"Set-Mailbox\",\r\n    \"Remove-MailboxPermission\",\r\n    \"Remove-RecipientPermission\"\r\n)\r\n\r\n# Enable TLS1.2\r\n[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12\r\n\r\n# Set debug logging\r\n$VerbosePreference = \"SilentlyContinue\"\r\n$InformationPreference = \"Continue\"\r\n$WarningPreference = \"Continue\"\r\n\r\n#region functions\r\nfunction Get-MSEntraCertificate {\r\n    [CmdletBinding()]\r\n    param(\r\n        [Parameter(Mandatory)]\r\n        [ValidateNotNullOrEmpty()]\r\n        [string]\r\n        $CertificateBase64String,\r\n        \r\n        [Parameter(Mandatory)]\r\n        [ValidateNotNullOrEmpty()]\r\n        [string]\r\n        $CertificatePassword\r\n    )\r\n    try {\r\n        $rawCertificate = [system.convert]::FromBase64String($CertificateBase64String)\r\n        $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($rawCertificate, $CertificatePassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)\r\n        Write-Output $certificate\r\n    }\r\n    catch {\r\n        $PSCmdlet.ThrowTerminatingError($_)\r\n    }\r\n}\r\n#endregion functions\r\n\r\ntry {\r\n    # Import module\r\n    $actionMessage = \"importing module [ExchangeOnlineManagement]\"\r\n        \r\n    $importModuleSplatParams = @{\r\n        Name        = \"ExchangeOnlineManagement\"\r\n        Cmdlet      = $commands\r\n        Verbose     = $false\r\n        ErrorAction = \"Stop\"\r\n    }\r\n\r\n    $null = Import-Module @importModuleSplatParams\r\n\r\n    Write-Verbose \"Imported module [ExchangeOnlineManagement]\"\r\n\r\n    # Convert base64 certificate string to certificate object\r\n    $actionMessage = \"converting base64 certificate string to certificate object\"\r\n\r\n    $certificate = Get-MSEntraCertificate -CertificateBase64String $EntraIdCertificateBase64String -CertificatePassword $EntraIdCertificatePassword\r\n\r\n    Write-Verbose \"Converted base64 certificate string to certificate object\"\r\n\r\n    # Connect to Microsoft Exchange Online\r\n    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/connect-exchangeonline?view=exchange-ps\r\n    $actionMessage = \"connecting to Microsoft Exchange Online\"\r\n\r\n    $createExchangeSessionSplatParams = @{\r\n        Organization          = $EntraIdOrganization\r\n        AppID                 = $EntraIdAppId\r\n        Certificate           = $certificate\r\n        CommandName           = $commands\r\n        ShowBanner            = $false\r\n        ShowProgress          = $false\r\n        TrackPerformance      = $false\r\n        SkipLoadingCmdletHelp = $true\r\n        SkipLoadingFormatData = $true\r\n        ErrorAction           = \"Stop\"\r\n    }\r\n\r\n    $null = Connect-ExchangeOnline @createExchangeSessionSplatParams\r\n\r\n    # Grant users permissions to shared mailbox\r\n    $actionMessage = \"granting permission [$permission] to shared mailbox to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for users\"\r\n    foreach ($userToAdd in $usersToAdd) {\r\n        switch ($permission) {\r\n            \"fullaccess\" {\r\n                # Grant Full Access to shared mailbox\r\n                try {\r\n                    $actionMessage = \"granting permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))]\"\r\n\r\n                    $FullAccessPermissionSplatParams = @{\r\n                        Identity      = $mailbox.guid  # of $mailbox.UserPrincipalName\r\n                        User          = $userToAdd.id\r\n                        AccessRights  = \"FullAccess\"\r\n                        AutoMapping   = [bool]$AutoMapping\r\n                        ErrorAction   = \"Stop\"\r\n                        WarningAction = \"SilentlyContinue\"\r\n                    }\r\n                    $addFullAccessPermission = Add-MailboxPermission @FullAccessPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully granted permission [FullAccess] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailboxDisplayName # optional (free format text) \r\n                        TargetIdentifier  = $mailboxPrimarySmtpAddress # optional (free format text) \r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n            \r\n            \"sendas\" {\r\n                # Grant Send As to shared mailbox\r\n                try {\r\n                    $actionMessage = \"granting permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))]\"\r\n\r\n                    $sendAsPermissionSplatParams = @{\r\n                        Identity     = $mailbox.Guid\r\n                        Trustee      = $userToAdd.id\r\n                        AccessRights = \"SendAs\"\r\n                        Confirm      = $false\r\n                        ErrorAction  = \"Stop\"\r\n                    } \r\n                    $addSendAsPermission = Add-RecipientPermission @sendAsPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully granted permission [Send As] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailboxDisplayName # optional (free format text) \r\n                        TargetIdentifier  = $mailboxPrimarySmtpAddress # optional (free format text) \r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n\r\n            \"sendonbehalf\" {\r\n                # Grant Send on Behalf to shared mailbox\r\n                try {\r\n                    $actionMessage = \"granting permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))]\"\r\n\r\n                    $SendonBehalfPermissionSplatParams = @{\r\n                        Identity            = $mailbox.Guid\r\n                        GrantSendOnBehalfTo = @{ add = \"$($userToAdd.id)\" }\r\n                        Confirm             = $false\r\n                        ErrorAction         = \"Stop\"\r\n                    }\r\n                    Write-Warning ($SendonBehalfPermissionSplatParams | ConvertTo-Json -Depth 10)\r\n                    $addSendonBehalfPermission = Set-Mailbox @SendonBehalfPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully granted permission [Send on Behalf] to mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToAdd.userPrincipalName) ($($userToAdd.id))]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"GrantMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n        }\r\n    }\r\n\r\n    # Revoke users permissions to shared mailbox\r\n    $actionMessage = \"revoking permission [$permission] from shared mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for users\"\r\n    foreach ($userToRemove in $usersToRemove) {\r\n        switch ($permission) {\r\n            \"fullaccess\" {\r\n                # Revoke Full Access from shared mailbox\r\n                try {\r\n                    $actionMessage = \"revoking permission [FullAccess] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.userPrincipalName) ($($userToRemove.id))]\"\r\n\r\n                    $FullAccessPermissionSplatParams = @{\r\n                        Identity      = $mailbox.Guid\r\n                        User          = $userToRemove.id\r\n                        AccessRights  = \"FullAccess\"\r\n                        ErrorAction   = \"Stop\"\r\n                        Confirm       = $false\r\n                        WarningAction = \"SilentlyContinue\"\r\n                    } \r\n                    $removeFullAccessPermission = Remove-MailboxPermission @FullAccessPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully revoked permission [FullAccess] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.userPrincipalName) ($($userToRemove.id))]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n            \r\n            \"sendas\" {\r\n                # Revoke Send As from shared mailbox\r\n                try {\r\n                    $actionMessage = \"revoking permission [Send As] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.userPrincipalName) ($($userToRemove.id))]\"\r\n\r\n                    $sendAsPermissionSplatParams = @{\r\n                        Identity     = $mailbox.Guid\r\n                        Trustee      = $userToRemove.id\r\n                        AccessRights = \"SendAs\"\r\n                        Confirm      = $false\r\n                        ErrorAction  = \"Stop\"\r\n                    } \r\n                    $removeSendAsPermission = Remove-RecipientPermission @sendAsPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully revoked permission [Send As] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.id))]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n\r\n            \"sendonbehalf\" {\r\n                # Revoke Send on Behalf from shared mailbox\r\n                try {\r\n                    $actionMessage = \"revoking permission [Send on Behalf] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.id))]\"\r\n\r\n                    $SendonBehalfPermissionSplatParams = @{\r\n                        Identity            = $mailbox.Guid\r\n                        GrantSendOnBehalfTo = @{ remove = \"$($userToRemove.id)\" }\r\n                        Confirm             = $false\r\n                        ErrorAction         = \"Stop\"\r\n                    } \r\n                    $removeSendonBehalfPermission = Set-Mailbox @SendonBehalfPermissionSplatParams\r\n\r\n                    # Send auditlog to HelloID\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"Exchange\" # optional (free format text) \r\n                        Message           = \"Successfully revoked permission [Send on Behalf] from mailbox [$($mailbox.DisplayName) ($($mailbox.Guid))] for user [$($userToRemove.UserPrincipalName) ($($userToRemove.id))]\" # required (free format text) \r\n                        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                }\r\n                catch {\r\n                    $ex = $PSItem\r\n                    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n                    }\r\n                    else {\r\n                        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n                        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n                    }\r\n\r\n                    $Log = @{\r\n                        Action            = \"RevokeMembership\" # optional. ENUM (undefined = default) \r\n                        System            = \"ExchangeOnline\" # optional (free format text) \r\n                        Message           = $auditMessage # required (free format text) \r\n                        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n                        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n                        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n                    }\r\n                    Write-Information -Tags \"Audit\" -MessageData $log\r\n                    Write-Warning $warningMessage\r\n                    Write-Error $auditMessage\r\n                }\r\n                break\r\n            }\r\n        }\r\n    }\r\n}\r\ncatch {\r\n    $ex = $PSItem\r\n    if (-not [string]::IsNullOrEmpty($ex.Exception.Data.RemoteException.Message)) {\r\n        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Data.RemoteException.Message)\"\r\n    }\r\n    else {\r\n        $warningMessage = \"Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($ex.Exception.Message)\"\r\n        $auditMessage = \"Error $($actionMessage). Error: $($ex.Exception.Message)\"\r\n    }\r\n\r\n    $Log = @{\r\n        # Action            = \"\" # optional. ENUM (undefined = default) \r\n        System            = \"ExchangeOnline\" # optional (free format text) \r\n        Message           = $auditMessage # required (free format text) \r\n        IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) \r\n        TargetDisplayName = $mailbox.DisplayName # optional (free format text)\r\n        TargetIdentifier  = $([string]$mailbox.Guid) # optional (free format text)\r\n    }\r\n    \r\n    Write-Information -Tags \"Audit\" -MessageData $log\r\n    Write-Warning $warningMessage\r\n    Write-Error $auditMessage\r\n}\r\nfinally {\r\n    # Docs: https://learn.microsoft.com/en-us/powershell/module/exchange/disconnect-exchangeonline?view=exchange-ps\r\n    $deleteExchangeSessionSplatParams = @{\r\n        Confirm     = $false\r\n        ErrorAction = \"Stop\"\r\n    }\r\n    $null = Disconnect-ExchangeOnline @deleteExchangeSessionSplatParams\r\n}","runInCloud":false}
 '@ 
 
 Invoke-HelloIDDelegatedForm -DelegatedFormName $delegatedFormName -DynamicFormGuid $dynamicFormGuid -AccessGroups $delegatedFormAccessGroupGuids -Categories $delegatedFormCategoryGuids -UseFaIcon "True" -FaIcon "fa fa-pencil-square" -task $tmpTask -returnObject ([Ref]$delegatedFormRef) 
