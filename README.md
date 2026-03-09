@@ -12,10 +12,11 @@ By using this delegated form, you can manage shared mailbox permissions in Excha
 
 1. Search and select a shared mailbox (wildcard search by name and email addresses)
 2. Select the permission type to manage (Full Access, Send As, or Send on Behalf)
-3. Add or remove users from the selected permission via a dual list
+3. **Optional:** When selecting "Full Access", you can enable "Include Send As with Full Access" to automatically grant or revoke both permissions simultaneously (enabled by default)
+4. Add or remove users from the selected permission via a dual list
    > The left part of the dual list shows all available users  
    > The right part of the dual list shows the users who currently have the selected permission  
-4. grant or revoke the selected permission for multiple users to or from the selected mailbox
+5. Grant or revoke the selected permission(s) for multiple users to or from the selected mailbox
    > Users moved to the left part of the dual list will have their permission revoked  
    > Users moved to the right part of the dual list will have their permission granted  
 
@@ -55,6 +56,21 @@ The following global variables must be configured in HelloID when importing and 
 | EntraIdCertificatePassword     | The password associated with the app certificate                         | Yes       |
 
 ## Remarks
+
+### Combined Permission Management
+
+When selecting **Full Access** as the permission type, you have the option to also include **Send As** permissions automatically. This is controlled by the "Include Send As with Full Access" checkbox (enabled by default).
+
+**Why this is useful:**
+- In most scenarios, users who need Full Access to a shared mailbox also require Send As permissions
+- This feature streamlines the permission management process by granting or revoking both permissions in a single operation
+- The checkbox only appears when "Full Access" is selected; it's hidden for other permission types
+
+**Behavior:**
+- When enabled, both Full Access and Send As permissions are granted or revoked simultaneously
+- Users moved to the right side of the dual list receive both permissions
+- Users moved to the left side of the dual list have both permissions removed
+- The checkbox can be disabled if you only want to manage Full Access without affecting Send As permissions
 
 ### Performance Optimization Strategy
 

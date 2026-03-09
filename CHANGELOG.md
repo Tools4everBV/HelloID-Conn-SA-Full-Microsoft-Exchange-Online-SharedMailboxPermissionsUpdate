@@ -2,7 +2,16 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [2.0.0.0] - 2025-02-26
+## [2.1.0] - 2026-03-09
+
+### Added
+- "Include Send As with Full Access" checkbox option to streamline permission management
+  - When enabled (default), both Full Access and Send As permissions are granted or revoked simultaneously
+  - Checkbox only appears when "Full Access" permission type is selected
+  - Allows users to manage Full Access independently if disabled
+  - Simplifies the common scenario where users need both permissions together
+
+## [2.0.0] - 2025-02-26
 
 ### Added
 - Certificate-based authentication support for Microsoft Entra ID and Exchange Online
@@ -40,7 +49,7 @@ All notable changes to this project will be documented in this file. The format 
 - Enhanced error handling for permission operations with detailed exception context
 - Better handling of special characters in search values during mailbox discovery
 
-## [1.0.0.0] - 2021-04-29
+## [1.0.0] - 2021-04-29
 
 ### Added
 - Initial release of HelloID-Conn-SA-Full-Exchange-Online-MailboxPermissionsUpdate
