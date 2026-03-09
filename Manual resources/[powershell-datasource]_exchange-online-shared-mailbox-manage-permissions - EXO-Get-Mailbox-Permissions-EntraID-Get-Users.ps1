@@ -25,7 +25,6 @@ $commands = @(
     , "Get-EXOMailbox"
     , "Get-RecipientPermission"
     , "Get-MailboxPermission"
-    , "Get-User"
 )
 
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2

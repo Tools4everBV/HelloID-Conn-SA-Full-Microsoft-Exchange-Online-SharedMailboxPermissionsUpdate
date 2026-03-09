@@ -128,7 +128,22 @@
         "requiresDataSource": false
       },
       {
-        "key": "permissionList",
+        "key": "blnIncludeSendAs",
+        "templateOptions": {
+          "label": "Include Send As with Full Access?",
+          "useSwitch": true,
+          "checkboxLabel": "Include Send As with Full Access"
+        },
+        "hideExpression": "model[\"permission\"]!=='fullaccess'",
+        "type": "boolean",
+        "defaultValue": true,
+        "summaryVisibility": "Show",
+        "requiresTemplateOptions": true,
+        "requiresKey": true,
+        "requiresDataSource": false
+      },
+      {
+        "key": "mailboxPermissions",
         "templateOptions": {
           "label": "Mailbox permissions",
           "required": false,
@@ -150,7 +165,9 @@
               }
             ],
             "optionKeyProperty": "id",
-            "optionDisplayProperty": "displayValue"
+            "optionDisplayProperty": "displayValue",
+            "labelLeft": "All users",
+            "labelRight": "Current users with permission"
           },
           "dataSourceConfig": {
             "dataSourceGuid": "$dataSourceGuid_1",
