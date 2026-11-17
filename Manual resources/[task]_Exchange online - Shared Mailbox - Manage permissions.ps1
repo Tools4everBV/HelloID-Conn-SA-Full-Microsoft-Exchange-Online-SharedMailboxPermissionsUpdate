@@ -1,7 +1,7 @@
 # variables configured in form
 $mailbox = $form.gridMailbox
 $permissions = @($form.permission)
-$blnIncludeSendAs = [System.Convert]::ToBoolean($form.blnIncludeSendAs)
+$blnIncludeSendAs = if ([string]::IsNullOrWhiteSpace($form.blnIncludeSendAs)) { $false } else { [System.Convert]::ToBoolean($form.blnIncludeSendAs) }
 if($blnIncludeSendAs -eq $true) {
     $permissions += 'sendas'
 }
